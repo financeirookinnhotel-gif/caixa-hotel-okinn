@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from flask import Flask, render_template, redirect, url_for, flash, request, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
@@ -6,7 +5,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import os
-import json
 from pdf_extractor import extract_caixa_data
 
 app = Flask(__name__)
@@ -190,13 +188,14 @@ def upload():
             flash('Nenhum arquivo selecionado.', 'danger')
             return redirect(request.url)
         if pdf_file and pdf_file.filename.endswith('.pdf'):
-            filename = secure_filename(f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{pdf_file.filename}")
+            filename = secure_filename(
+                datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             pdf_file.save(filepath)
             try:
                 data = extract_caixa_data(filepath)
             except Exception as e:
-                flash(f'Erro ao processar PDF: {str(e)}', 'danger')
+                flash('Erro ao processar PDF: ' + str(e), 'danger')
                 return redirect(request.url)
             fc = FechamentoCaixa(
                 unidade=data.get('unidade', ''),
@@ -298,7 +297,7 @@ def gerar_relatorio(fc_id):
     diretor_user = User.query.get(fc.diretor_user_id) if fc.diretor_user_id else None
     pdf_path = gerar_pdf_relatorio(fc, financeiro_user, diretor_user)
     return send_file(pdf_path, as_attachment=True,
-                     download_name=f'relatorio_fechamento_{fc.id}.pdf')
+                     download_name='relatorio_fechamento_' + str(fc.id) + '.pdf')
 
 
 @app.route('/admin/usuarios')
