@@ -34,7 +34,7 @@ def normalizar_valor(val_str):
     val_str = val_str.replace('.', '').replace(',', '.')
     try:
         return float(val_str)
-    except:
+    except Exception:
         return 0.0
 
 
@@ -69,4 +69,76 @@ def extract_caixa_data(pdf_path):
         'cortesia': 0.0,
     }
 
-    with pdfplumber.open(pdf_path) as pd
+    full_text = ''
+    pdf = pdfplumber.open(pdf_path)
+    for page in pdf.pages:
+        full_text += (page.extract_text() or '') + '\n'
+    pdf.close()
+
+    lines = full_text.split('\n')
+
+    for line in lines[:10]:
+        line_stripped = line.strip()
+        if line_stripped and len(line_stripped) > 5:
+            unidade = resolver_unidade(line_stripped)
+            if unidade != line_stripped:
+                result['unidade'] = unidade
+                break
+    if not result['unidade']:
+        for line in lines[:5]:
+            if line.strip():
+                result['unidade'] = resolver_unidade(line.strip())
+                break
+
+    mov_match = re.search(r'Movimento\s*\S*\s*(\d+)', full_text, re.IGNORECASE)
+    if mov_match:
+        result['movimento_num'] = mov_match.group(1)
+
+    enc_match = re.search(r'Encerramento[:\s]+(\d{2}/\d{2}/\d{2,4})\s+[\d:]+\s*[-]\s*(\w+)', full_text, re.IGNORECASE)
+    if enc_match:
+        result['data_fechamento'] = enc_match.group(1)
+        result['quem_fechou'] = resolver_fechador(enc_match.group(2))
+
+    dinheiro_encerramento = 0.0
+    movimento_pattern = re.compile(
+        r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+(Dinheiro)',
+        re.IGNORECASE
+    )
+    for match in movimento_pattern.finditer(full_text):
+        dinheiro_encerramento += normalizar_valor(match.group(1))
+    result['dinheiro_encerramento'] = dinheiro_encerramento
+
+    dinheiro_saida = 0.0
+    saida_pattern = re.compile(
+        r'\d{2}/\d{2}\s+[\d:]+h\s+(\S+.*?)\s+([\d.,]+)\s+Dinheiro',
+        re.IGNORECASE
+    )
+    for match in saida_pattern.finditer(full_text):
+        historico = match.group(1).strip()
+        if 'MOVIMENTO' not in historico.upper():
+            dinheiro_saida += normalizar_valor(match.group(2))
+    result['dinheiro_saida'] = dinheiro_saida
+
+    dep_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dep', re.IGNORECASE)
+    dep_total = sum(normalizar_valor(m.group(1)) for m in dep_pattern.finditer(full_text))
+    if dep_total > 0:
+        result['deposito_bancario'] = dep_total
+
+    cartao_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cart', re.IGNORECASE)
+    cartao_total = sum(normalizar_valor(m.group(1)) for m in cartao_pattern.finditer(full_text))
+    if cartao_total > 0:
+        result['cartao'] = cartao_total
+
+    fat_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Faturad', re.IGNORECASE)
+    for m in fat_pattern.finditer(full_text):
+        result['faturado'] = normalizar_valor(m.group(1))
+
+    cort_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cortesia', re.IGNORECASE)
+    for m in cort_pattern.finditer(full_text):
+        result['cortesia'] = normalizar_valor(m.group(1))
+
+    uc_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Uso', re.IGNORECASE)
+    for m in uc_pattern.finditer(full_text):
+        result['uso_credito'] = normalizar_valor(m.group(1))
+
+    return result
