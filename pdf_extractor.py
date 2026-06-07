@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | OK INN Caixas</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #1a3a5c 0%, #2563a8 100%);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+    .login-card {
+      background: white; border-radius: 16px; padding: 2.5rem;
+      width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .login-logo { text-align: center; margin-bottom: 2rem; }
+    .login-logo .brand { font-size: 2rem; font-weight: 800; color: #1a3a5c; }
+    .login-logo .brand span { color: #e8a020; }
+    .login-logo .subtitle { color: #6c757d; font-size: 0.9rem; }
+    .form-control:focus { border-color: #2563a8; box-shadow: 0 0 0 0.2rem rgba(37,99,168,0.25); }
+    .btn-login {
+      background: linear-gradient(135deg, #1a3a5c, #2563a8);
+      border: none; color: white; width: 100%; padding: 0.75rem;
+      border-radius: 8px; font-weight: 600; font-size: 1rem; transition: opacity 0.2s;
+    }
+    .btn-login:hover { opacity: 0.9; color: white; }
+    .input-group-text { background: #f8f9fa; border-right: none; }
+    .form-control { border-left: none; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="brand">OK<span>INN</span></div>
+      <div class="subtitle"><i class="fas fa-cash-register me-1"></i>Sistema de Fechamento de Caixa</div>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} py-2">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <form method="POST">
+      <div class="mb-3">
+        <label class="form-label fw-semibold">Usuário</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-user text-muted"></i></span>
+          <input type="text" name="username" class="form-control" placeholder="Seu usuário" required autofocus>
+        </div>
+      </div>
+      <div class="mb-4">
+        <label class="form-label fw-semibold">Senha</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-lock text-muted"></i></span>
+          <input type="password" name="password" class="form-control" placeholder="Sua senha" required>
+        </div>
+      </div>
+      <button type="submit" class="btn-login">
+        <i class="fas fa-sign-in-alt me-2"></i>Entrar
+      </button>
+    </form>
+  </div>
+</body>
+</html>
