@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}<i class="fas fa-chart-pie me-2"></i>Dashboard de Fechamentos{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="stat-card azul">
+      <div class="stat-num">{{ total }}</div>
+      <div class="stat-label"><i class="fas fa-folder me-1"></i>Total de Fechamentos</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card verde">
+      <div class="stat-num">{{ concluidos }}</div>
+      <div class="stat-label"><i class="fas fa-check-circle me-1"></i>Concluídos</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="stat-card laranja">
+      <div class="stat-num">{{ pendentes }}</div>
+      <div class="stat-label"><i class="fas fa-clock me-1"></i>Pendentes</div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header py-3">
+    <h6 class="mb-0"><i class="fas fa-heartbeat me-2"></i>Saúde dos Fechamentos por Unidade</h6>
+  </div>
+  <div class="card-body">
+    <div class="row g-3" id="unidade-stats">
+      {% for u in unidades %}
+      {% set stats = unidade_stats.get(u, {'total': 0, 'ok': 0}) %}
+      {% set pct = (stats.ok / stats.total * 100)|int if stats.total > 0 else 0 %}
+      {% set ativa = u != 'Floripa Coqueiros' %}
+      <div class="col-md-6 col-lg-4">
+        <div class="p-3 border rounded-3 bg-white h-100 {{ 'opacity-50' if not ativa }}">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <div class="fw-semibold" style="font-size: 0.9rem;">{{ u }}</div>
+              <small class="text-muted">{{ stats.total }} fechamentos</small>
+            </div>
+            {% if not ativa %}
+            <span class="badge bg-secondary">Inativo</span>
+            {% else %}
+            <span class="badge" style="background: {% if pct == 100 %}#198754{% elif pct >= 75 %}#20c997{% elif pct >= 50 %}#ffc107{% else %}#dc3545{% endif %}; color: {% if pct >= 50 and pct < 75 %}#333{% else %}white{% endif %}">
+              {{ pct }}%
+            </span>
+            {% endif %}
+          </div>
+          {% if ativa %}
+          <div class="saude-bar">
+            <div class="saude-fill {{ 'saude-100' if pct == 100 else 'saude-75' if pct >= 75 else 'saude-50' if pct >= 50 else 'saude-25' }}"
+                 style="width: {{ pct }}%"></div>
+          </div>
+          <div class="mt-2 d-flex justify-content-between">
+            <small class="text-success">✓ {{ stats.ok }} ok</small>
+            <small class="text-danger">✗ {{ stats.total - stats.ok }} pendentes</small>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card" id="fechamentos">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="fas fa-list me-2"></i>Fechamentos Recentes</h6>
+    {% if current_user.role in ['financeiro', 'admin'] %}
+    <a href="{{ url_for('upload') }}" class="btn btn-sm btn-light">
+      <i class="fas fa-plus me-1"></i>Nov
