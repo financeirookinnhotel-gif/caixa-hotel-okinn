@@ -56,7 +56,7 @@
                  style="width: {{ pct }}%"></div>
           </div>
           <div class="mt-2 d-flex justify-content-between">
-            <small class="text-success">✓ {{ stats.ok }} ok</small>
+            UNIDADES_ATIVAS = [u for u in UNIDADES if u != 'Floripa Coqueiros']
             <small class="text-danger">✗ {{ stats.total - stats.ok }} pendentes</small>
           </div>
           {% endif %}
