@@ -1,67 +1,72 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login | OK INN Caixas</title>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-  <style>
-    body {
-      background: linear-gradient(135deg, #1a3a5c 0%, #2563a8 100%);
-      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+import pdfplumber
+import re
+
+ALIAS_FECHADORES = {
+    'EDEM': 'EDEMILSON',
+    'EDEMILS': 'EDEMILSON',
+    'EDEMILSON': 'EDEMILSON',
+    'ALE': 'ALESSANDRA',
+    'ALESSANDRA': 'ALESSANDRA',
+    'ERIK': 'ERIK',
+    'DEISE': 'DEISE',
+    'RICHARD': 'RICHARD',
+}
+
+UNIDADE_MAP = {
+    'OK INN HOTEL TUBARAO': 'Ok Inn Tubarao',
+    'OK INN EXPRESS TUBARAO': 'Ok Inn Express Tubarao',
+    'OK INN TUBARAO': 'Ok Inn Tubarao',
+    'OK INN EXPRESS': 'Ok Inn Express Tubarao',
+    'CRICIUMA EXPRESS': 'Criciuma Express',
+    'CRICIUMA CENTRO': 'Criciuma Centro',
+    'FLORIPA COQUEIROS': 'Floripa Coqueiros',
+    'ATLANTICO SUL': 'Atlantico Sul',
+    'RENASCENCA': 'Renascenca',
+    'YOU HI 01': 'You HI 01',
+    'YOU HI': 'You HI 01',
+}
+
+
+def normalizar_valor(val_str):
+    if not val_str:
+        return 0.0
+    val_str = val_str.strip().replace('R$', '').replace(' ', '')
+    val_str = val_str.replace('.', '').replace(',', '.')
+    try:
+        return float(val_str)
+    except:
+        return 0.0
+
+
+def resolver_unidade(texto):
+    texto_upper = texto.upper().strip()
+    for key, val in UNIDADE_MAP.items():
+        if key in texto_upper:
+            return val
+    return texto.strip()
+
+
+def resolver_fechador(nome):
+    nome_upper = nome.upper().strip()
+    for key, val in ALIAS_FECHADORES.items():
+        if key in nome_upper:
+            return val
+    return nome.strip()
+
+
+def extract_caixa_data(pdf_path):
+    result = {
+        'unidade': '',
+        'data_fechamento': '',
+        'quem_fechou': '',
+        'movimento_num': '',
+        'dinheiro_saida': 0.0,
+        'dinheiro_encerramento': 0.0,
+        'faturado': 0.0,
+        'uso_credito': 0.0,
+        'deposito_bancario': 0.0,
+        'cartao': 0.0,
+        'cortesia': 0.0,
     }
-    .login-card {
-      background: white; border-radius: 16px; padding: 2.5rem;
-      width: 100%; max-width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .login-logo { text-align: center; margin-bottom: 2rem; }
-    .login-logo .brand { font-size: 2rem; font-weight: 800; color: #1a3a5c; }
-    .login-logo .brand span { color: #e8a020; }
-    .login-logo .subtitle { color: #6c757d; font-size: 0.9rem; }
-    .form-control:focus { border-color: #2563a8; box-shadow: 0 0 0 0.2rem rgba(37,99,168,0.25); }
-    .btn-login {
-      background: linear-gradient(135deg, #1a3a5c, #2563a8);
-      border: none; color: white; width: 100%; padding: 0.75rem;
-      border-radius: 8px; font-weight: 600; font-size: 1rem; transition: opacity 0.2s;
-    }
-    .btn-login:hover { opacity: 0.9; color: white; }
-    .input-group-text { background: #f8f9fa; border-right: none; }
-    .form-control { border-left: none; }
-  </style>
-</head>
-<body>
-  <div class="login-card">
-    <div class="login-logo">
-      <div class="brand">OK<span>INN</span></div>
-      <div class="subtitle"><i class="fas fa-cash-register me-1"></i>Sistema de Fechamento de Caixa</div>
-    </div>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }} py-2">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    <form method="POST">
-      <div class="mb-3">
-        <label class="form-label fw-semibold">Usuário</label>
-        <div class="input-group">
-          <span class="input-group-text"><i class="fas fa-user text-muted"></i></span>
-          <input type="text" name="username" class="form-control" placeholder="Seu usuário" required autofocus>
-        </div>
-      </div>
-      <div class="mb-4">
-        <label class="form-label fw-semibold">Senha</label>
-        <div class="input-group">
-          <span class="input-group-text"><i class="fas fa-lock text-muted"></i></span>
-          <input type="password" name="password" class="form-control" placeholder="Sua senha" required>
-        </div>
-      </div>
-      <button type="submit" class="btn-login">
-        <i class="fas fa-sign-in-alt me-2"></i>Entrar
-      </button>
-    </form>
-  </div>
-</body>
-</html>
+
+    with pdfplumber.open(pdf_path) as pd
