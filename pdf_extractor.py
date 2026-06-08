@@ -14,14 +14,21 @@ ALIAS_FECHADORES = {
 
 UNIDADE_MAP = {
     'OK INN HOTEL TUBARAO': 'Ok Inn Tubarao',
+    'OK INN HOTEL TUBARÃO': 'Ok Inn Tubarao',
     'OK INN EXPRESS TUBARAO': 'Ok Inn Express Tubarao',
+    'OK INN EXPRESS TUBARÃO': 'Ok Inn Express Tubarao',
     'OK INN TUBARAO': 'Ok Inn Tubarao',
+    'OK INN TUBARÃO': 'Ok Inn Tubarao',
     'OK INN EXPRESS': 'Ok Inn Express Tubarao',
     'CRICIUMA EXPRESS': 'Criciuma Express',
+    'CRICIÚMA EXPRESS': 'Criciuma Express',
     'CRICIUMA CENTRO': 'Criciuma Centro',
+    'CRICIÚMA CENTRO': 'Criciuma Centro',
     'FLORIPA COQUEIROS': 'Floripa Coqueiros',
     'ATLANTICO SUL': 'Atlantico Sul',
+    'ATLÂNTICO SUL': 'Atlantico Sul',
     'RENASCENCA': 'Renascenca',
+    'RENASCENÇA': 'Renascenca',
     'YOU HI 01': 'You HI 01',
     'YOU HI': 'You HI 01',
 }
@@ -43,7 +50,7 @@ def resolver_unidade(texto):
     for key, val in UNIDADE_MAP.items():
         if key in texto_upper:
             return val
-    return texto.strip()
+    return None
 
 
 def resolver_fechador(nome):
@@ -70,75 +77,97 @@ def extract_caixa_data(pdf_path):
     }
 
     full_text = ''
-    pdf = pdfplumber.open(pdf_path)
-    for page in pdf.pages:
-        full_text += (page.extract_text() or '') + '\n'
-    pdf.close()
+    unidade_encontrada = ''
 
-    lines = full_text.split('\n')
+    with pdfplumber.open(pdf_path) as pdf:
+        first_page = pdf.pages[0]
+        width = first_page.width
+        height = first_page.height
 
-    for line in lines[:10]:
-        line_stripped = line.strip()
-        if line_stripped and len(line_stripped) > 5:
-            unidade = resolver_unidade(line_stripped)
-            if unidade != line_stripped:
-                result['unidade'] = unidade
-                break
-    if not result['unidade']:
-        for line in lines[:5]:
-            if line.strip():
-                result['unidade'] = resolver_unidade(line.strip())
+        # Busca o nome do hotel na metade direita do topo da pagina
+        # O nome aparece no canto superior direito
+        right_half = first_page.crop((width * 0.4, 0, width, height * 0.15))
+        right_text = right_half.extract_text() or ''
+
+        for line in right_text.split('\n'):
+            unidade = resolver_unidade(line.strip())
+            if unidade:
+                unidade_encontrada = unidade
                 break
 
+        # Se nao encontrou, tenta o texto completo da pagina
+        if not unidade_encontrada:
+            full_page_text = first_page.extract_text() or ''
+            for line in full_page_text.split('\n'):
+                unidade = resolver_unidade(line.strip())
+                if unidade:
+                    unidade_encontrada = unidade
+                    break
+
+        result['unidade'] = unidade_encontrada
+
+        # Extrai texto completo de todas as paginas
+        for page in pdf.pages:
+            full_text += (page.extract_text() or '') + '\n'
+
+    # Numero do movimento
     mov_match = re.search(r'Movimento\s*\S*\s*(\d+)', full_text, re.IGNORECASE)
     if mov_match:
         result['movimento_num'] = mov_match.group(1)
 
-    enc_match = re.search(r'Encerramento[:\s]+(\d{2}/\d{2}/\d{2,4})\s+[\d:]+\s*[-]\s*(\w+)', full_text, re.IGNORECASE)
+    # Data de fechamento e quem fechou
+    enc_match = re.search(
+        r'Encerramento[:\s]+(\d{2}/\d{2}/\d{2,4})\s+[\d:]+\s*[-]\s*(\w+)',
+        full_text, re.IGNORECASE
+    )
     if enc_match:
         result['data_fechamento'] = enc_match.group(1)
         result['quem_fechou'] = resolver_fechador(enc_match.group(2))
 
+    # Dinheiro encerramento
     dinheiro_encerramento = 0.0
-    movimento_pattern = re.compile(
-        r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+(Dinheiro)',
-        re.IGNORECASE
-    )
-    for match in movimento_pattern.finditer(full_text):
+    mov_din = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro', re.IGNORECASE)
+    for match in mov_din.finditer(full_text):
         dinheiro_encerramento += normalizar_valor(match.group(1))
     result['dinheiro_encerramento'] = dinheiro_encerramento
 
+    # Dinheiro saida (nao encerramento)
     dinheiro_saida = 0.0
-    saida_pattern = re.compile(
+    saida_pat = re.compile(
         r'\d{2}/\d{2}\s+[\d:]+h\s+(\S+.*?)\s+([\d.,]+)\s+Dinheiro',
         re.IGNORECASE
     )
-    for match in saida_pattern.finditer(full_text):
+    for match in saida_pat.finditer(full_text):
         historico = match.group(1).strip()
         if 'MOVIMENTO' not in historico.upper():
             dinheiro_saida += normalizar_valor(match.group(2))
     result['dinheiro_saida'] = dinheiro_saida
 
-    dep_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dep', re.IGNORECASE)
-    dep_total = sum(normalizar_valor(m.group(1)) for m in dep_pattern.finditer(full_text))
+    # Deposito bancario
+    dep_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dep', re.IGNORECASE)
+    dep_total = sum(normalizar_valor(m.group(1)) for m in dep_pat.finditer(full_text))
     if dep_total > 0:
         result['deposito_bancario'] = dep_total
 
-    cartao_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cart', re.IGNORECASE)
-    cartao_total = sum(normalizar_valor(m.group(1)) for m in cartao_pattern.finditer(full_text))
-    if cartao_total > 0:
-        result['cartao'] = cartao_total
+    # Cartao
+    car_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cart', re.IGNORECASE)
+    car_total = sum(normalizar_valor(m.group(1)) for m in car_pat.finditer(full_text))
+    if car_total > 0:
+        result['cartao'] = car_total
 
-    fat_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Faturad', re.IGNORECASE)
-    for m in fat_pattern.finditer(full_text):
+    # Faturado
+    fat_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Faturad', re.IGNORECASE)
+    for m in fat_pat.finditer(full_text):
         result['faturado'] = normalizar_valor(m.group(1))
 
-    cort_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cortesia', re.IGNORECASE)
-    for m in cort_pattern.finditer(full_text):
+    # Cortesia
+    cort_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cortesia', re.IGNORECASE)
+    for m in cort_pat.finditer(full_text):
         result['cortesia'] = normalizar_valor(m.group(1))
 
-    uc_pattern = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Uso', re.IGNORECASE)
-    for m in uc_pattern.finditer(full_text):
+    # Uso credito
+    uc_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Uso', re.IGNORECASE)
+    for m in uc_pat.finditer(full_text):
         result['uso_credito'] = normalizar_valor(m.group(1))
 
     return result
