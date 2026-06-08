@@ -147,10 +147,7 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    fechamentos = FechamentoCaixa.query.order_by(
-        FechamentoCaixa.unidade.asc(),
-        FechamentoCaixa.movimento_num.asc()
-    ).all()
+    fechamentos = FechamentoCaixa.query.all()
     total = len(fechamentos)
     concluidos = sum(1 for f in fechamentos if f.status == 'concluido')
     pendentes = total - concluidos
@@ -171,6 +168,16 @@ def dashboard():
                            unidades=UNIDADES,
                            cofre_por_unidade=cofre_por_unidade,
                            total_cofre=total_cofre)
+
+
+@app.route('/fechamentos')
+@login_required
+def lista_fechamentos():
+    fechamentos = FechamentoCaixa.query.order_by(
+        FechamentoCaixa.unidade.asc(),
+        FechamentoCaixa.movimento_num.asc()
+    ).all()
+    return render_template('fechamentos.html', fechamentos=fechamentos, unidades=UNIDADES)
 
 
 @app.route('/upload', methods=['GET', 'POST'])
