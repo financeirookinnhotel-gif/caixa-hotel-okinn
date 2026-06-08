@@ -23,7 +23,6 @@
 {% endblock %}
 
 {% block content %}
-
 <div class="row g-3 mb-4">
   <div class="col-12">
     <div class="saldo-total d-flex justify-content-between align-items-center">
@@ -43,7 +42,7 @@
 {% if emprestimos_pendentes %}
 <div class="alert alert-warning mb-4">
   <i class="fas fa-exclamation-triangle me-2"></i>
-  <strong>{{ emprestimos_pendentes|length }} emprestimo(s) pendente(s) de devolucao</strong>
+  <strong>{{ emprestimos_pendentes|length }} emprestimo(s) pendente(s)</strong>
   {% for emp in emprestimos_pendentes %}
   <div class="mt-1" style="font-size:0.9rem">
     <i class="fas fa-arrow-right me-1"></i>
@@ -162,7 +161,7 @@
       </div>
       <div class="modal-body">
         <div class="mb-3">
-          <label class="form-label fw-semibold">Tipo de Movimentacao</label>
+          <label class="form-label fw-semibold">Tipo</label>
           <select id="tipoMov" class="form-select" onchange="atualizarFormulario()">
             <option value="">Selecione...</option>
             <option value="saldo_inicial">Saldo Inicial</option>
@@ -178,15 +177,15 @@
             <input type="date" id="dataMov" class="form-control">
           </div>
           <div class="col-md-6" id="campoValorTotal">
-            <label class="form-label fw-semibold">Valor Total (R$)</label>
+            <label class="form-label fw-semibold">Valor (R$)</label>
             <input type="number" step="0.01" min="0" id="valorMov" class="form-control" placeholder="0,00">
           </div>
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold">Descricao</label>
-          <input type="text" id="descricaoMov" class="form-control" placeholder="Ex: Aluguel junho, Entrada extra...">
+          <input type="text" id="descricaoMov" class="form-control" placeholder="Ex: Aluguel junho...">
         </div>
-        <div id="campoUnidade" class="mb-3 d-none">
+        <div id="campoUnidade" class="mb-3" style="display:none">
           <label class="form-label fw-semibold">Unidade</label>
           <select id="unidadeMov" class="form-select">
             <option value="">Selecione...</option>
@@ -195,10 +194,10 @@
             {% endfor %}
           </select>
         </div>
-        <div id="campoEmprestimo" class="d-none">
+        <div id="campoEmprestimo" style="display:none">
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Unidade que Empresta (Origem)</label>
+              <label class="form-label fw-semibold">Unidade que Empresta</label>
               <select id="unidadeOrigem" class="form-select">
                 <option value="">Selecione...</option>
                 {% for u in unidades_ativas %}
@@ -207,7 +206,7 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Unidade que Recebe (Destino)</label>
+              <label class="form-label fw-semibold">Unidade que Recebe</label>
               <select id="unidadeDestino" class="form-select">
                 <option value="">Selecione...</option>
                 {% for u in unidades_ativas %}
@@ -217,28 +216,28 @@
             </div>
           </div>
         </div>
-        <div id="campoRateio" class="d-none">
+        <div id="campoRateio" style="display:none">
           <label class="form-label fw-semibold">Rateio por Unidade</label>
-          <small class="text-muted d-block mb-2">Informe o valor que sai de cada unidade.</small>
-          <div class="row g-2">
+          <small class="text-muted d-block mb-2">Informe o valor que sai de cada unidade participante.</small>
+          <div class="row g-2 mb-2">
             {% for u in unidades_ativas %}
             <div class="col-md-6">
               <div class="input-group input-group-sm">
-                <span class="input-group-text" style="font-size:0.78rem; min-width:140px">{{ u }}</span>
+                <span class="input-group-text" style="font-size:0.78rem; min-width:150px">{{ u }}</span>
                 <input type="number" step="0.01" min="0" class="form-control rateio-input"
                        data-unidade="{{ u }}" placeholder="0,00" oninput="atualizarTotalRateio()">
               </div>
             </div>
             {% endfor %}
           </div>
-          <div class="mt-2 p-2 rounded" style="background:#f8f9fa">
+          <div class="p-2 rounded" style="background:#f8f9fa">
             <span class="fw-semibold">Total: </span>
             <span id="totalRateio" class="fw-bold text-primary">R$ 0,00</span>
           </div>
         </div>
         <div class="mb-3 mt-3">
           <label class="form-label fw-semibold">Observacao (opcional)</label>
-          <textarea id="obsMov" class="form-control" rows="2" placeholder="Detalhes adicionais..."></textarea>
+          <textarea id="obsMov" class="form-control" rows="2"></textarea>
         </div>
       </div>
       <div class="modal-footer">
@@ -284,7 +283,7 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-success fw-semibold" onclick="salvarDevolucao()">
-          <i class="fas fa-check me-1"></i>Confirmar Devolucao
+          <i class="fas fa-check me-1"></i>Confirmar
         </button>
       </div>
     </div>
@@ -297,19 +296,20 @@
 <script>
 function atualizarFormulario() {
   var tipo = document.getElementById('tipoMov').value;
-  document.getElementById('campoUnidade').classList.add('d-none');
-  document.getElementById('campoEmprestimo').classList.add('d-none');
-  document.getElementById('campoRateio').classList.add('d-none');
-  document.getElementById('campoValorTotal').classList.remove('d-none');
-  if (['saldo_inicial','entrada_manual','saida'].includes(tipo)) {
-    document.getElementById('campoUnidade').classList.remove('d-none');
+  document.getElementById('campoUnidade').style.display = 'none';
+  document.getElementById('campoEmprestimo').style.display = 'none';
+  document.getElementById('campoRateio').style.display = 'none';
+  document.getElementById('campoValorTotal').style.display = 'block';
+  if (tipo === 'saldo_inicial' || tipo === 'entrada_manual' || tipo === 'saida') {
+    document.getElementById('campoUnidade').style.display = 'block';
   } else if (tipo === 'emprestimo') {
-    document.getElementById('campoEmprestimo').classList.remove('d-none');
+    document.getElementById('campoEmprestimo').style.display = 'block';
   } else if (tipo === 'saida_rateio') {
-    document.getElementById('campoRateio').classList.remove('d-none');
-    document.getElementById('campoValorTotal').classList.add('d-none');
+    document.getElementById('campoRateio').style.display = 'block';
+    document.getElementById('campoValorTotal').style.display = 'none';
   }
 }
+
 function atualizarTotalRateio() {
   var total = 0;
   document.querySelectorAll('.rateio-input').forEach(function(inp) {
@@ -318,24 +318,103 @@ function atualizarTotalRateio() {
   document.getElementById('totalRateio').textContent = 'R$ ' + total.toFixed(2).replace('.', ',');
   document.getElementById('valorMov').value = total;
 }
+
 function salvarMovimentacao() {
   var tipo = document.getElementById('tipoMov').value;
   if (!tipo) { alert('Selecione o tipo.'); return; }
   var descricao = document.getElementById('descricaoMov').value.trim();
   if (!descricao) { alert('Informe a descricao.'); return; }
-  var data = document.getElementById('dataMov').value;
-  var dataFormatada = data ? data.split('-').reverse().join('/') : '';
-  var body = { tipo: tipo, descricao: descricao, data: dataFormatada, obs: document.getElementById('obsMov').value };
-  if (['saldo_inicial','entrada_manual','saida'].includes(tipo)) {
+  var dataVal = document.getElementById('dataMov').value;
+  if (!dataVal) { alert('Informe a data.'); return; }
+  var dataFormatada = dataVal.split('-').reverse().join('/');
+  var body = {
+    tipo: tipo,
+    descricao: descricao,
+    data: dataFormatada,
+    obs: document.getElementById('obsMov').value
+  };
+
+  if (tipo === 'saldo_inicial' || tipo === 'entrada_manual' || tipo === 'saida') {
     body.unidade = document.getElementById('unidadeMov').value;
     body.valor = parseFloat(document.getElementById('valorMov').value || 0);
     if (!body.unidade) { alert('Selecione a unidade.'); return; }
-    if (!body.valor) { alert('Informe o valor.'); return; }
+    if (!body.valor || body.valor <= 0) { alert('Informe o valor.'); return; }
   } else if (tipo === 'saida_rateio') {
-    body.valor_total = parseFloat(document.getElementById('valorMov').value || 0);
     body.rateios = [];
     document.querySelectorAll('.rateio-input').forEach(function(inp) {
       var v = parseFloat(inp.value || 0);
-      if (v > 0) body.rateios.push({ unidade: inp.dataset.unidade, valor
-        </script>
+      if (v > 0) body.rateios.push({ unidade: inp.dataset.unidade, valor: v });
+    });
+    if (!body.rateios.length) { alert('Informe o valor de pelo menos uma unidade.'); return; }
+    body.valor_total = body.rateios.reduce(function(s, r) { return s + r.valor; }, 0);
+  } else if (tipo === 'emprestimo') {
+    body.unidade_origem = document.getElementById('unidadeOrigem').value;
+    body.unidade_destino = document.getElementById('unidadeDestino').value;
+    body.valor = parseFloat(document.getElementById('valorMov').value || 0);
+    if (!body.unidade_origem || !body.unidade_destino) { alert('Selecione as unidades.'); return; }
+    if (!body.valor || body.valor <= 0) { alert('Informe o valor.'); return; }
+  }
+
+  fetch('/cofre/movimentacao', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r) {
+    return r.json();
+  }).then(function(d) {
+    if (d.success) {
+      location.reload();
+    } else {
+      alert(d.error || 'Erro ao salvar.');
+    }
+  }).catch(function(e) {
+    alert('Erro de conexao: ' + e);
+  });
+}
+
+function registrarDevolucao(empId, origem, destino, valor) {
+  document.getElementById('devEmprestimoId').value = empId;
+  document.getElementById('devUnidadeOrigem').value = origem;
+  document.getElementById('devUnidadeDestino').value = destino;
+  document.getElementById('devValor').value = valor;
+  document.getElementById('devData').value = new Date().toISOString().split('T')[0];
+  new bootstrap.Modal(document.getElementById('modalDevolucao')).show();
+}
+
+function salvarDevolucao() {
+  var dataVal = document.getElementById('devData').value;
+  var dataFormatada = dataVal ? dataVal.split('-').reverse().join('/') : '';
+  var body = {
+    tipo: 'devolucao',
+    descricao: document.getElementById('devDescricao').value,
+    data: dataFormatada,
+    unidade_origem: document.getElementById('devUnidadeOrigem').value,
+    unidade_destino: document.getElementById('devUnidadeDestino').value,
+    valor: parseFloat(document.getElementById('devValor').value || 0),
+    emprestimo_id: document.getElementById('devEmprestimoId').value
+  };
+  fetch('/cofre/movimentacao', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r) {
+    return r.json();
+  }).then(function(d) {
+    if (d.success) location.reload();
+    else alert(d.error || 'Erro');
+  });
+}
+
+function excluirMov(id) {
+  if (!confirm('Excluir esta movimentacao?')) return;
+  fetch('/cofre/movimentacao/' + id + '/excluir', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.success) location.reload(); });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var hoje = new Date().toISOString().split('T')[0];
+  document.getElementById('dataMov').value = hoje;
+});
+</script>
 {% endblock %}
