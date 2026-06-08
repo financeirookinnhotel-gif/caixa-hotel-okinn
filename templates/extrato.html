@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+{% block title %}Extrato — {{ unidade }}{% endblock %}
+{% block page_title %}<i class="fas fa-file-alt me-2"></i>Extrato — {{ unidade }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.extrato-entrada { color: #198754; font-weight: 700; }
+.extrato-saida { color: #dc3545; font-weight: 700; }
+.extrato-saldo.positivo { color: #198754; font-weight: 700; }
+.extrato-saldo.negativo { color: #dc3545; font-weight: 700; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <a href="{{ url_for('cofre') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fas fa-arrow-left me-1"></i>Voltar ao Cofre
+  </a>
+  <div class="text-end">
+    <div class="text-muted" style="font-size:0.85rem">Saldo Atual</div>
+    <div style="font-size:1.8rem; font-weight:800; color:{{ '#198754' if saldo_atual >= 0 else '#dc3545' }}">
+      R$ {{ '{:,.2f}'.format(saldo_atual) }}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header py-3">
+    <h6 class="mb-0"><i class="fas fa-list me-2"></i>Extrato Completo — {{ unidade }}</h6>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead style="background:#f8f9fa;">
+          <tr>
+            <th class="px-3 py-2" style="font-size:0.78rem">Data</th>
+            <th style="font-size:0.78rem">Tipo</th>
+            <th style="font-size:0.78rem">Descricao</th>
+            <th style="font-size:0.78rem; text-align:right">Entrada</th>
+            <th style="font-size:0.78rem; text-align:right">Saida</th>
+            <th style="font-size:0.78rem; text-align:right">Saldo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for mov in movimentacoes %}
+          <tr>
+            <td class="px-3 py-2" style="font-size:0.85rem">{{ mov.data }}</td>
+            <td style="font-size:0.82rem">
+              <span class="badge" style="font-size:0.7rem; background:
+                {{ '#198754' if mov.tipo in ['Entrada Caixa','Entrada Manual','Saldo Inicial','Emprestimo Recebido','Devolucao Recebida'] else '#dc3545' }}">
+                {{ mov.tipo }}
+              </span>
+            </td>
+            <td style="font-size:0.85rem">{{ mov.descricao }}</td>
+            <td style="text-align:right" class="extrato-entrada">
+              {% if mov.entrada > 0 %}R$ {{ '{:,.2f}'.format(mov.entrada) }}{% endif %}
+            </td>
+            <td style="text-align:right" class="extrato-saida">
+              {% if mov.saida > 0 %}R$ {{ '{:,.2f}'.format(mov.saida) }}{% endif %}
+            </td>
+            <td style="text-align:right" class="extrato-saldo {{ 'positivo' if mov.saldo >= 0 else 'negativo' }}">
+              R$ {{ '{:,.2f}'.format(mov.saldo) }}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-5">
+              <i class="fas fa-inbox fa-3x mb-3 d-block opacity-25"></i>
+              Nenhuma movimentacao para esta unidade ainda.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
