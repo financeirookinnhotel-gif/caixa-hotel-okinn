@@ -71,6 +71,9 @@
     <a href="{{ url_for('lista_fechamentos') }}" class="nav-link {% if request.endpoint == 'lista_fechamentos' %}active{% endif %}">
       <i class="fas fa-list"></i> Fechamentos
     </a>
+    <a href="{{ url_for('cofre') }}" class="nav-link {% if request.endpoint in ['cofre', 'extrato_unidade'] %}active{% endif %}">
+      <i class="fas fa-lock"></i> Cofre
+    </a>
     {% if current_user.role in ['financeiro', 'admin'] %}
     <a href="{{ url_for('upload') }}" class="nav-link {% if request.endpoint == 'upload' %}active{% endif %}">
       <i class="fas fa-upload"></i> Novo Fechamento
