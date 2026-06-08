@@ -18,7 +18,6 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Faca login para acessar o sistema.'
-
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 UNIDADES = [
@@ -31,9 +30,7 @@ UNIDADES = [
     'Renascenca',
     'You HI 01',
 ]
-
 UNIDADES_ATIVAS = [u for u in UNIDADES if u != 'Floripa Coqueiros']
-FECHADORES = ['EDEMILSON', 'ALESSANDRA', 'ERIK', 'DEISE', 'RICHARD']
 ROLES = ['financeiro', 'diretor', 'admin']
 
 
@@ -44,10 +41,8 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(20), nullable=False)
     name = db.Column(db.String(120), nullable=False)
     active = db.Column(db.Boolean, default=True)
-
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
-
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
@@ -99,9 +94,9 @@ class FechamentoCaixa(db.Model):
 
     def status_label(self):
         labels = {
-            'aguardando_financeiro': 'Aguardando Financeiro',
-            'aguardando_diretor': 'Aguardando Diretor',
-            'aguardando_cofre': 'Aguardando Cofre',
+            'aguardando_financeiro': 'Ag. Financeiro',
+            'aguardando_diretor': 'Ag. Diretor',
+            'aguardando_cofre': 'Ag. Cofre',
             'concluido': 'Concluido',
         }
         return labels.get(self.status, self.status)
@@ -152,22 +147,30 @@ def logout():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    fechamentos = FechamentoCaixa.query.order_by(FechamentoCaixa.created_at.desc()).limit(50).all()
-    total = FechamentoCaixa.query.count()
-    concluidos = FechamentoCaixa.query.filter_by(status='concluido').count()
+    fechamentos = FechamentoCaixa.query.order_by(
+        FechamentoCaixa.unidade.asc(),
+        FechamentoCaixa.movimento_num.asc()
+    ).all()
+    total = len(fechamentos)
+    concluidos = sum(1 for f in fechamentos if f.status == 'concluido')
     pendentes = total - concluidos
     unidade_stats = {}
+    cofre_por_unidade = {}
     for u in UNIDADES:
-        total_u = FechamentoCaixa.query.filter_by(unidade=u).count()
-        ok_u = FechamentoCaixa.query.filter_by(unidade=u, status='concluido').count()
-        unidade_stats[u] = {'total': total_u, 'ok': ok_u}
+        fcs = [f for f in fechamentos if f.unidade == u]
+        ok = sum(1 for f in fcs if f.status == 'concluido')
+        unidade_stats[u] = {'total': len(fcs), 'ok': ok}
+        cofre_por_unidade[u] = sum(f.dinheiro_encerramento for f in fcs if f.cofre_confirmado)
+    total_cofre = sum(cofre_por_unidade.values())
     return render_template('dashboard.html',
                            fechamentos=fechamentos,
                            total=total,
                            concluidos=concluidos,
                            pendentes=pendentes,
                            unidade_stats=unidade_stats,
-                           unidades=UNIDADES)
+                           unidades=UNIDADES,
+                           cofre_por_unidade=cofre_por_unidade,
+                           total_cofre=total_cofre)
 
 
 @app.route('/upload', methods=['GET', 'POST'])
@@ -227,6 +230,17 @@ def upload():
 def fechamento_detail(fc_id):
     fc = FechamentoCaixa.query.get_or_404(fc_id)
     return render_template('fechamento_detail.html', fc=fc)
+
+
+@app.route('/fechamento/<int:fc_id>/excluir', methods=['POST'])
+@login_required
+def excluir_fechamento(fc_id):
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Nao autorizado'}), 403
+    fc = FechamentoCaixa.query.get_or_404(fc_id)
+    db.session.delete(fc)
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/fechamento/<int:fc_id>/financeiro', methods=['POST'])
@@ -291,13 +305,17 @@ def cofre_confirm(fc_id):
 @app.route('/fechamento/<int:fc_id>/relatorio')
 @login_required
 def gerar_relatorio(fc_id):
-    from report_generator import gerar_pdf_relatorio
     fc = FechamentoCaixa.query.get_or_404(fc_id)
     financeiro_user = User.query.get(fc.financeiro_user_id) if fc.financeiro_user_id else None
     diretor_user = User.query.get(fc.diretor_user_id) if fc.diretor_user_id else None
-    pdf_path = gerar_pdf_relatorio(fc, financeiro_user, diretor_user)
-    return send_file(pdf_path, as_attachment=True,
-                     download_name='relatorio_fechamento_' + str(fc.id) + '.pdf')
+    try:
+        from report_generator import gerar_pdf_relatorio
+        pdf_path = gerar_pdf_relatorio(fc, financeiro_user, diretor_user)
+        return send_file(pdf_path, as_attachment=True,
+                         download_name='relatorio_fechamento_' + str(fc.id) + '.pdf')
+    except Exception as e:
+        flash('Erro ao gerar relatorio: ' + str(e), 'danger')
+        return redirect(url_for('fechamento_detail', fc_id=fc.id))
 
 
 @app.route('/admin/usuarios')
@@ -334,21 +352,6 @@ def toggle_usuario(user_id):
     user.active = not user.active
     db.session.commit()
     return jsonify({'success': True, 'active': user.active})
-
-
-@app.route('/api/stats')
-@login_required
-def api_stats():
-    stats = []
-    for u in UNIDADES:
-        fcs = FechamentoCaixa.query.filter_by(unidade=u).all()
-        total = len(fcs)
-        concluidos = sum(1 for f in fcs if f.status == 'concluido')
-        pendentes = total - concluidos
-        saude = int(sum(f.saude_score() for f in fcs if f.status == 'concluido') / concluidos) if concluidos else 0
-        stats.append({'unidade': u, 'total': total, 'concluidos': concluidos,
-                      'pendentes': pendentes, 'saude': saude})
-    return jsonify(stats)
 
 
 def init_db():
