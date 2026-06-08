@@ -19,6 +19,7 @@ login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Faca login para acessar o sistema.'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+os.makedirs('relatorios', exist_ok=True)
 
 UNIDADES = [
     'Ok Inn Tubarao',
@@ -111,6 +112,79 @@ class FechamentoCaixa(db.Model):
         return int((checks / len(campos)) * 100)
 
 
+class MovimentacaoCofre(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    tipo = db.Column(db.String(30), nullable=False)
+    descricao = db.Column(db.String(256), nullable=False)
+    data = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    obs = db.Column(db.Text)
+    unidade = db.Column(db.String(120))
+    valor = db.Column(db.Float, default=0.0)
+    unidade_origem = db.Column(db.String(120))
+    unidade_destino = db.Column(db.String(120))
+    emprestimo_quitado = db.Column(db.Boolean, default=False)
+    emprestimo_quitado_at = db.Column(db.DateTime)
+    criado_por = db.relationship('User', foreign_keys=[created_by])
+    rateios = db.relationship('RateioCofre', backref='movimentacao', lazy=True, cascade='all, delete-orphan')
+
+    def tipo_label(self):
+        labels = {
+            'saldo_inicial': 'Saldo Inicial',
+            'entrada_manual': 'Entrada Manual',
+            'saida': 'Saida',
+            'saida_rateio': 'Saida com Rateio',
+            'emprestimo': 'Emprestimo',
+            'devolucao': 'Devolucao',
+        }
+        return labels.get(self.tipo, self.tipo)
+
+
+class RateioCofre(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    movimentacao_id = db.Column(db.Integer, db.ForeignKey('movimentacao_cofre.id'), nullable=False)
+    unidade = db.Column(db.String(120), nullable=False)
+    valor = db.Column(db.Float, default=0.0)
+
+
+def calcular_saldos():
+    saldos = {u: 0.0 for u in UNIDADES}
+    emprestimos_pendentes = []
+    fcs = FechamentoCaixa.query.filter_by(cofre_confirmado=True).all()
+    for fc in fcs:
+        if fc.unidade in saldos:
+            saldos[fc.unidade] += fc.dinheiro_encerramento
+    movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.asc()).all()
+    for mov in movs:
+        if mov.tipo == 'saldo_inicial':
+            if mov.unidade in saldos:
+                saldos[mov.unidade] += mov.valor
+        elif mov.tipo == 'entrada_manual':
+            if mov.unidade in saldos:
+                saldos[mov.unidade] += mov.valor
+        elif mov.tipo == 'saida':
+            if mov.unidade in saldos:
+                saldos[mov.unidade] -= mov.valor
+        elif mov.tipo == 'saida_rateio':
+            for rateio in mov.rateios:
+                if rateio.unidade in saldos:
+                    saldos[rateio.unidade] -= rateio.valor
+        elif mov.tipo == 'emprestimo':
+            if mov.unidade_origem in saldos:
+                saldos[mov.unidade_origem] -= mov.valor
+            if mov.unidade_destino in saldos:
+                saldos[mov.unidade_destino] += mov.valor
+            if not mov.emprestimo_quitado:
+                emprestimos_pendentes.append(mov)
+        elif mov.tipo == 'devolucao':
+            if mov.unidade_origem in saldos:
+                saldos[mov.unidade_origem] += mov.valor
+            if mov.unidade_destino in saldos:
+                saldos[mov.unidade_destino] -= mov.valor
+    return saldos, emprestimos_pendentes
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -152,22 +226,17 @@ def dashboard():
     concluidos = sum(1 for f in fechamentos if f.status == 'concluido')
     pendentes = total - concluidos
     unidade_stats = {}
-    cofre_por_unidade = {}
     for u in UNIDADES:
         fcs = [f for f in fechamentos if f.unidade == u]
         ok = sum(1 for f in fcs if f.status == 'concluido')
         unidade_stats[u] = {'total': len(fcs), 'ok': ok}
-        cofre_por_unidade[u] = sum(f.dinheiro_encerramento for f in fcs if f.cofre_confirmado)
-    total_cofre = sum(cofre_por_unidade.values())
+    saldos, emprestimos_pendentes = calcular_saldos()
+    total_cofre = sum(saldos.values())
     return render_template('dashboard.html',
-                           fechamentos=fechamentos,
-                           total=total,
-                           concluidos=concluidos,
-                           pendentes=pendentes,
-                           unidade_stats=unidade_stats,
-                           unidades=UNIDADES,
-                           cofre_por_unidade=cofre_por_unidade,
-                           total_cofre=total_cofre)
+                           total=total, concluidos=concluidos, pendentes=pendentes,
+                           unidade_stats=unidade_stats, unidades=UNIDADES,
+                           saldos=saldos, total_cofre=total_cofre,
+                           emprestimos_pendentes=emprestimos_pendentes)
 
 
 @app.route('/fechamentos')
@@ -198,8 +267,7 @@ def upload():
             flash('Nenhum arquivo selecionado.', 'danger')
             return redirect(request.url)
         if pdf_file and pdf_file.filename.endswith('.pdf'):
-            filename = secure_filename(
-                datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
+            filename = secure_filename(datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             pdf_file.save(filepath)
             try:
@@ -323,6 +391,115 @@ def gerar_relatorio(fc_id):
     except Exception as e:
         flash('Erro ao gerar relatorio: ' + str(e), 'danger')
         return redirect(url_for('fechamento_detail', fc_id=fc.id))
+
+
+@app.route('/cofre')
+@login_required
+def cofre():
+    saldos, emprestimos_pendentes = calcular_saldos()
+    total_cofre = sum(saldos.values())
+    movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.desc()).all()
+    return render_template('cofre.html',
+                           saldos=saldos, total_cofre=total_cofre,
+                           emprestimos_pendentes=emprestimos_pendentes,
+                           movimentacoes=movs, unidades=UNIDADES,
+                           unidades_ativas=UNIDADES_ATIVAS)
+
+
+@app.route('/cofre/extrato/<unidade>')
+@login_required
+def extrato_unidade(unidade):
+    movs_unidade = []
+    fcs = FechamentoCaixa.query.filter_by(unidade=unidade, cofre_confirmado=True).order_by(FechamentoCaixa.cofre_at.asc()).all()
+    for fc in fcs:
+        movs_unidade.append({
+            'data': fc.cofre_at.strftime('%d/%m/%Y') if fc.cofre_at else fc.data_fechamento,
+            'tipo': 'Entrada Caixa',
+            'descricao': 'Fechamento Mov. #' + str(fc.movimento_num),
+            'entrada': fc.dinheiro_encerramento,
+            'saida': 0,
+        })
+    movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.asc()).all()
+    for mov in movs:
+        if mov.tipo == 'saldo_inicial' and mov.unidade == unidade:
+            movs_unidade.append({'data': mov.data, 'tipo': 'Saldo Inicial', 'descricao': mov.descricao, 'entrada': mov.valor, 'saida': 0})
+        elif mov.tipo == 'entrada_manual' and mov.unidade == unidade:
+            movs_unidade.append({'data': mov.data, 'tipo': 'Entrada Manual', 'descricao': mov.descricao, 'entrada': mov.valor, 'saida': 0})
+        elif mov.tipo == 'saida' and mov.unidade == unidade:
+            movs_unidade.append({'data': mov.data, 'tipo': 'Saida', 'descricao': mov.descricao, 'entrada': 0, 'saida': mov.valor})
+        elif mov.tipo == 'saida_rateio':
+            for r in mov.rateios:
+                if r.unidade == unidade:
+                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao, 'entrada': 0, 'saida': r.valor})
+        elif mov.tipo == 'emprestimo':
+            if mov.unidade_origem == unidade:
+                movs_unidade.append({'data': mov.data, 'tipo': 'Emprestimo Concedido', 'descricao': 'Para ' + mov.unidade_destino + ': ' + mov.descricao, 'entrada': 0, 'saida': mov.valor})
+            elif mov.unidade_destino == unidade:
+                movs_unidade.append({'data': mov.data, 'tipo': 'Emprestimo Recebido', 'descricao': 'De ' + mov.unidade_origem + ': ' + mov.descricao, 'entrada': mov.valor, 'saida': 0})
+        elif mov.tipo == 'devolucao':
+            if mov.unidade_origem == unidade:
+                movs_unidade.append({'data': mov.data, 'tipo': 'Devolucao Recebida', 'descricao': mov.descricao, 'entrada': mov.valor, 'saida': 0})
+            elif mov.unidade_destino == unidade:
+                movs_unidade.append({'data': mov.data, 'tipo': 'Devolucao Realizada', 'descricao': mov.descricao, 'entrada': 0, 'saida': mov.valor})
+    saldo_acumulado = 0.0
+    for m in movs_unidade:
+        saldo_acumulado += m['entrada'] - m['saida']
+        m['saldo'] = saldo_acumulado
+    saldos, _ = calcular_saldos()
+    return render_template('extrato.html', unidade=unidade, movimentacoes=movs_unidade,
+                           saldo_atual=saldos.get(unidade, 0), unidades=UNIDADES)
+
+
+@app.route('/cofre/movimentacao', methods=['POST'])
+@login_required
+def nova_movimentacao():
+    if current_user.role not in ['diretor', 'admin']:
+        return jsonify({'error': 'Nao autorizado'}), 403
+    data = request.json
+    tipo = data.get('tipo')
+    mov = MovimentacaoCofre(
+        tipo=tipo,
+        descricao=data.get('descricao', ''),
+        data=data.get('data', datetime.now().strftime('%d/%m/%Y')),
+        created_by=current_user.id,
+        obs=data.get('obs', ''),
+    )
+    if tipo in ['saldo_inicial', 'entrada_manual', 'saida']:
+        mov.unidade = data.get('unidade')
+        mov.valor = float(data.get('valor', 0))
+    elif tipo == 'saida_rateio':
+        mov.valor = float(data.get('valor_total', 0))
+        for r in data.get('rateios', []):
+            if float(r.get('valor', 0)) > 0:
+                mov.rateios.append(RateioCofre(unidade=r['unidade'], valor=float(r['valor'])))
+    elif tipo == 'emprestimo':
+        mov.unidade_origem = data.get('unidade_origem')
+        mov.unidade_destino = data.get('unidade_destino')
+        mov.valor = float(data.get('valor', 0))
+    elif tipo == 'devolucao':
+        mov.unidade_origem = data.get('unidade_origem')
+        mov.unidade_destino = data.get('unidade_destino')
+        mov.valor = float(data.get('valor', 0))
+        emp_id = data.get('emprestimo_id')
+        if emp_id:
+            emp = MovimentacaoCofre.query.get(int(emp_id))
+            if emp:
+                emp.emprestimo_quitado = True
+                emp.emprestimo_quitado_at = datetime.utcnow()
+    db.session.add(mov)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Movimentacao registrada!'})
+
+
+@app.route('/cofre/movimentacao/<int:mov_id>/excluir', methods=['POST'])
+@login_required
+def excluir_movimentacao(mov_id):
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Nao autorizado'}), 403
+    mov = MovimentacaoCofre.query.get_or_404(mov_id)
+    db.session.delete(mov)
+    db.session.commit()
+    return jsonify({'success': True})
 
 
 @app.route('/admin/usuarios')
