@@ -17,6 +17,7 @@ UNIDADE_MAP = {
     'OK INN HOTEL TUBARÃO': 'Ok Inn Tubarao',
     'OK INN EXPRESS TUBARAO': 'Ok Inn Express Tubarao',
     'OK INN EXPRESS TUBARÃO': 'Ok Inn Express Tubarao',
+    'OK INN HOTEL EXPRESS': 'Ok Inn Express Tubarao',
     'OK INN TUBARAO': 'Ok Inn Tubarao',
     'OK INN TUBARÃO': 'Ok Inn Tubarao',
     'OK INN EXPRESS': 'Ok Inn Express Tubarao',
@@ -84,18 +85,16 @@ def extract_caixa_data(pdf_path):
         width = first_page.width
         height = first_page.height
 
-        # Busca o nome do hotel na metade direita do topo da pagina
-        # O nome aparece no canto superior direito
+        # Busca nome do hotel na metade direita do topo
         right_half = first_page.crop((width * 0.4, 0, width, height * 0.15))
         right_text = right_half.extract_text() or ''
-
         for line in right_text.split('\n'):
             unidade = resolver_unidade(line.strip())
             if unidade:
                 unidade_encontrada = unidade
                 break
 
-        # Se nao encontrou, tenta o texto completo da pagina
+        # Fallback: texto completo
         if not unidade_encontrada:
             full_page_text = first_page.extract_text() or ''
             for line in full_page_text.split('\n'):
@@ -106,7 +105,6 @@ def extract_caixa_data(pdf_path):
 
         result['unidade'] = unidade_encontrada
 
-        # Extrai texto completo de todas as paginas
         for page in pdf.pages:
             full_text += (page.extract_text() or '') + '\n'
 
@@ -115,7 +113,7 @@ def extract_caixa_data(pdf_path):
     if mov_match:
         result['movimento_num'] = mov_match.group(1)
 
-    # Data de fechamento e quem fechou
+    # Data e quem fechou
     enc_match = re.search(
         r'Encerramento[:\s]+(\d{2}/\d{2}/\d{2,4})\s+[\d:]+\s*[-]\s*(\w+)',
         full_text, re.IGNORECASE
@@ -124,23 +122,29 @@ def extract_caixa_data(pdf_path):
         result['data_fechamento'] = enc_match.group(1)
         result['quem_fechou'] = resolver_fechador(enc_match.group(2))
 
-    # Dinheiro encerramento
+    # Dinheiro encerramento — apenas linhas MOVIMENTO com forma Dinheiro
     dinheiro_encerramento = 0.0
-    mov_din = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro', re.IGNORECASE)
+    mov_din = re.compile(
+        r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro',
+        re.IGNORECASE
+    )
     for match in mov_din.finditer(full_text):
         dinheiro_encerramento += normalizar_valor(match.group(1))
     result['dinheiro_encerramento'] = dinheiro_encerramento
 
-    # Dinheiro saida (nao encerramento)
+    # Dinheiro saida — apenas linhas com formato de data/hora + historico conhecido
+    # Formato: DD/MM HH:MMh AP NNN CTA NNNNN Dinheiro VALOR
+    # O valor vem DEPOIS da palavra Dinheiro, precedido por espaco
     dinheiro_saida = 0.0
     saida_pat = re.compile(
-        r'\d{2}/\d{2}\s+[\d:]+h\s+(\S+.*?)\s+([\d.,]+)\s+Dinheiro',
+        r'\d{2}/\d{2}\s+[\d:]+h\s+\S+\s+\S+\s+\S+\s+Dinheiro\s+([\d.,]+)',
         re.IGNORECASE
     )
     for match in saida_pat.finditer(full_text):
-        historico = match.group(1).strip()
-        if 'MOVIMENTO' not in historico.upper():
-            dinheiro_saida += normalizar_valor(match.group(2))
+        valor = normalizar_valor(match.group(1))
+        # Ignora valores muito altos que sao claramente numeros de conta
+        if valor < 50000:
+            dinheiro_saida += valor
     result['dinheiro_saida'] = dinheiro_saida
 
     # Deposito bancario
