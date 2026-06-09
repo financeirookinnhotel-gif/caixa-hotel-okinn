@@ -269,7 +269,61 @@ def upload():
         if pdf_file.filename == '':
             flash('Nenhum arquivo selecionado.', 'danger')
             return redirect(request.url)
-        if pdf_file and pdf_file.filename.endswith('.pdf'):
+        @app.route('/upload', methods=['GET', 'POST'])
+@login_required
+def upload():
+    if current_user.role not in ['financeiro', 'admin']:
+        flash('Acesso nao autorizado.', 'danger')
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        if 'pdf' not in request.files:
+            flash('Nenhum arquivo enviado.', 'danger')
+            return redirect(request.url)
+        pdf_file = request.files['pdf']
+        if pdf_file.filename == '':
+            flash('Nenhum arquivo selecionado.', 'danger')
+            return redirect(request.url)
+        tem_vendas_online = request.form.get('tem_vendas_online') == 'on'
+        try:
+            vendas_online_valor = float(request.form.get('vendas_online_valor') or 0)
+        except ValueError:
+            vendas_online_valor = 0.0
+        vendas_online_obs = request.form.get('vendas_online_obs', '')
+        if pdf_file and pdf_file.filename.lower().endswith('.pdf'):
+            filename = secure_filename(datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            pdf_file.save(filepath)
+            try:
+                data = extract_caixa_data(filepath)
+            except Exception as e:
+                flash('Erro ao processar PDF: ' + str(e), 'danger')
+                return redirect(request.url)
+            fc = FechamentoCaixa(
+                unidade=data.get('unidade', ''),
+                data_fechamento=data.get('data_fechamento', ''),
+                quem_fechou=data.get('quem_fechou', ''),
+                movimento_num=data.get('movimento_num', ''),
+                pdf_path=filepath,
+                dinheiro_saida=data.get('dinheiro_saida', 0),
+                dinheiro_encerramento=data.get('dinheiro_encerramento', 0),
+                faturado=data.get('faturado', 0),
+                uso_credito=data.get('uso_credito', 0),
+                deposito_bancario=data.get('deposito_bancario', 0),
+                cartao=data.get('cartao', 0),
+                cortesia=data.get('cortesia', 0),
+                tem_vendas_online=tem_vendas_online,
+                vendas_online=vendas_online_valor if tem_vendas_online else 0,
+                vendas_online_obs=vendas_online_obs if tem_vendas_online else '',
+                status='aguardando_financeiro',
+            )
+            db.session.add(fc)
+            db.session.commit()
+            flash('PDF processado com sucesso!', 'success')
+            return redirect(url_for('fechamento_detail', fc_id=fc.id))
+        else:
+            flash('Arquivo invalido. Envie apenas arquivos .PDF', 'danger')
+            return redirect(request.url)
+    return render_template('upload.html', unidades=UNIDADES_ATIVAS)
             filename = secure_filename(datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             pdf_file.save(filepath)
