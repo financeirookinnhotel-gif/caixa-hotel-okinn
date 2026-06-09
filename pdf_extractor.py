@@ -62,6 +62,10 @@ def resolver_fechador(nome):
     return nome.strip()
 
 
+def is_numero_conta(valor):
+    return valor > 10000
+
+
 def extract_caixa_data(pdf_path):
     result = {
         'unidade': '',
@@ -85,7 +89,6 @@ def extract_caixa_data(pdf_path):
         width = first_page.width
         height = first_page.height
 
-        # Busca nome do hotel na metade direita do topo
         right_half = first_page.crop((width * 0.4, 0, width, height * 0.15))
         right_text = right_half.extract_text() or ''
         for line in right_text.split('\n'):
@@ -94,7 +97,6 @@ def extract_caixa_data(pdf_path):
                 unidade_encontrada = unidade
                 break
 
-        # Fallback: texto completo
         if not unidade_encontrada:
             full_page_text = first_page.extract_text() or ''
             for line in full_page_text.split('\n'):
@@ -122,28 +124,31 @@ def extract_caixa_data(pdf_path):
         result['data_fechamento'] = enc_match.group(1)
         result['quem_fechou'] = resolver_fechador(enc_match.group(2))
 
-    # Dinheiro encerramento — apenas linhas MOVIMENTO com forma Dinheiro
+    # Dinheiro encerramento — linhas MOVIMENTO + valor + Dinheiro
     dinheiro_encerramento = 0.0
-    mov_din = re.compile(
-        r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro',
-        re.IGNORECASE
-    )
+    mov_din = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro', re.IGNORECASE)
     for match in mov_din.finditer(full_text):
-        dinheiro_encerramento += normalizar_valor(match.group(1))
+        v = normalizar_valor(match.group(1))
+        if not is_numero_conta(v):
+            dinheiro_encerramento += v
     result['dinheiro_encerramento'] = dinheiro_encerramento
 
-    # Dinheiro saida — apenas linhas com formato de data/hora + historico conhecido
-    # Formato: DD/MM HH:MMh AP NNN CTA NNNNN Dinheiro VALOR
-    # O valor vem DEPOIS da palavra Dinheiro, precedido por espaco
+    # Dinheiro saida — qualquer lancamento com data/hora + historico + valor + Dinheiro
+    # que NAO seja MOVIMENTO e NAO seja antecipacao de apartamento (AP NNN CTA NNNNN)
+    # Lancamentos AP CTA tem o numero da conta como "valor" — ignoramos pelo tamanho
     dinheiro_saida = 0.0
     saida_pat = re.compile(
-        r'\d{2}/\d{2}\s+[\d:]+h\s+\S+\s+\S+\s+\S+\s+Dinheiro\s+([\d.,]+)',
+        r'\d{2}/\d{2}\s+[\d:]+h\s+(.+?)\s+([\d.,]+)\s+Dinheiro',
         re.IGNORECASE
     )
     for match in saida_pat.finditer(full_text):
-        valor = normalizar_valor(match.group(1))
-        # Ignora valores muito altos que sao claramente numeros de conta
-        if valor < 50000:
+        historico = match.group(1).strip()
+        valor = normalizar_valor(match.group(2))
+        if 'MOVIMENTO' in historico.upper():
+            continue
+        if is_numero_conta(valor):
+            continue
+        if valor > 0:
             dinheiro_saida += valor
     result['dinheiro_saida'] = dinheiro_saida
 
