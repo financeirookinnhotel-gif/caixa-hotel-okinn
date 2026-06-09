@@ -85,6 +85,9 @@
     </a>
     {% endif %}
     <hr style="border-color: rgba(255,255,255,0.15); margin: 1rem 1rem;">
+    <a href="{{ url_for('minha_senha') }}" class="nav-link {% if request.endpoint == 'minha_senha' %}active{% endif %}">
+      <i class="fas fa-key"></i> Minha Senha
+    </a>
     <a href="{{ url_for('logout') }}" class="nav-link">
       <i class="fas fa-sign-out-alt"></i> Sair
     </a>
