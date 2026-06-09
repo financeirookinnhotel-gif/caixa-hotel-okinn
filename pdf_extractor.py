@@ -5,10 +5,12 @@ ALIAS_FECHADORES = {
     'EDEM': 'EDEMILSON',
     'EDEMILS': 'EDEMILSON',
     'EDEMILSON': 'EDEMILSON',
+    'EDEMILSOM': 'EDEMILSON',
     'ALE': 'ALESSANDRA',
     'ALESSANDRA': 'ALESSANDRA',
     'ERIK': 'ERIK',
     'DEISE': 'DEISE',
+    'DEIS': 'DEISE',
     'RICHARD': 'RICHARD',
 }
 
@@ -27,6 +29,10 @@ UNIDADE_MAP = {
     'OK INN HOTEL CRICIÚMA CENTRO': 'Criciuma Centro',
     'OK INN HOTEL CRICIUMA': 'Criciuma Express',
     'OK INN HOTEL CRICIÚMA': 'Criciuma Express',
+    'OK INN CRICIUMA EXPRESS': 'Criciuma Express',
+    'OK INN CRICIÚMA EXPRESS': 'Criciuma Express',
+    'OK INN CRICIUMA CENTRO': 'Criciuma Centro',
+    'OK INN CRICIÚMA CENTRO': 'Criciuma Centro',
     'CRICIUMA EXPRESS': 'Criciuma Express',
     'CRICIÚMA EXPRESS': 'Criciuma Express',
     'CRICIUMA CENTRO': 'Criciuma Centro',
@@ -36,6 +42,8 @@ UNIDADE_MAP = {
     'ATLÂNTICO SUL': 'Atlantico Sul',
     'RENASCENCA': 'Renascenca',
     'RENASCENÇA': 'Renascenca',
+    'YOU HOTEIS INTELIGENTES 01': 'You HI 01',
+    'YOU HOTEIS INTELIGENTES': 'You HI 01',
     'YOU HI 01': 'You HI 01',
     'YOU HI': 'You HI 01',
 }
@@ -57,7 +65,6 @@ def normalizar_valor(val_str):
 
 def resolver_unidade(texto):
     texto_upper = texto.upper().strip()
-    # Ordena por tamanho decrescente para pegar o match mais especifico primeiro
     for key in sorted(UNIDADE_MAP.keys(), key=len, reverse=True):
         if key in texto_upper:
             return UNIDADE_MAP[key]
