@@ -34,6 +34,9 @@ UNIDADE_MAP = {
     'YOU HI': 'You HI 01',
 }
 
+UNIDADES_CHEQUE_COMO_DEP = ['Atlantico Sul', 'Renascenca']
+UNIDADES_SEM_COFRE = ['Atlantico Sul', 'Renascenca']
+
 
 def normalizar_valor(val_str):
     if not val_str:
@@ -79,6 +82,8 @@ def extract_caixa_data(pdf_path):
         'deposito_bancario': 0.0,
         'cartao': 0.0,
         'cortesia': 0.0,
+        'cheque': 0.0,
+        'cofre_opcional': False,
     }
 
     full_text = ''
@@ -106,6 +111,7 @@ def extract_caixa_data(pdf_path):
                     break
 
         result['unidade'] = unidade_encontrada
+        result['cofre_opcional'] = unidade_encontrada in UNIDADES_SEM_COFRE
 
         for page in pdf.pages:
             full_text += (page.extract_text() or '') + '\n'
@@ -124,7 +130,7 @@ def extract_caixa_data(pdf_path):
         result['data_fechamento'] = enc_match.group(1)
         result['quem_fechou'] = resolver_fechador(enc_match.group(2))
 
-    # Dinheiro encerramento — linhas MOVIMENTO + valor + Dinheiro
+    # Dinheiro encerramento
     dinheiro_encerramento = 0.0
     mov_din = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro', re.IGNORECASE)
     for match in mov_din.finditer(full_text):
@@ -133,9 +139,7 @@ def extract_caixa_data(pdf_path):
             dinheiro_encerramento += v
     result['dinheiro_encerramento'] = dinheiro_encerramento
 
-    # Dinheiro saida — qualquer lancamento com data/hora + historico + valor + Dinheiro
-    # que NAO seja MOVIMENTO e NAO seja antecipacao de apartamento (AP NNN CTA NNNNN)
-    # Lancamentos AP CTA tem o numero da conta como "valor" — ignoramos pelo tamanho
+    # Dinheiro saida
     dinheiro_saida = 0.0
     saida_pat = re.compile(
         r'\d{2}/\d{2}\s+[\d:]+h\s+(.+?)\s+([\d.,]+)\s+Dinheiro',
@@ -152,11 +156,20 @@ def extract_caixa_data(pdf_path):
             dinheiro_saida += valor
     result['dinheiro_saida'] = dinheiro_saida
 
+    # Cheque — para Atlantico Sul e Renascenca vira deposito bancario
+    cheque_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cheque', re.IGNORECASE)
+    cheque_total = sum(normalizar_valor(m.group(1)) for m in cheque_pat.finditer(full_text))
+
     # Deposito bancario
     dep_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dep', re.IGNORECASE)
     dep_total = sum(normalizar_valor(m.group(1)) for m in dep_pat.finditer(full_text))
-    if dep_total > 0:
+
+    if unidade_encontrada in UNIDADES_CHEQUE_COMO_DEP:
+        result['deposito_bancario'] = dep_total + cheque_total
+        result['cheque'] = 0.0
+    else:
         result['deposito_bancario'] = dep_total
+        result['cheque'] = cheque_total
 
     # Cartao
     car_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cart', re.IGNORECASE)
