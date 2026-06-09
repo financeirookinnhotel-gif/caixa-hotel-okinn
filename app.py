@@ -8,12 +8,16 @@ import os
 from pdf_extractor import extract_caixa_data
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///caixa_hotel.db')
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+}
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
@@ -263,23 +267,6 @@ def upload():
             flash('Nenhum arquivo enviado.', 'danger')
             return redirect(request.url)
         pdf_file = request.files['pdf']
-        tem_vendas_online = request.form.get('tem_vendas_online') == 'on'
-        vendas_online_valor = float(request.form.get('vendas_online_valor') or 0)
-        vendas_online_obs = request.form.get('vendas_online_obs', '')
-        if pdf_file.filename == '':
-            flash('Nenhum arquivo selecionado.', 'danger')
-            return redirect(request.url)
-        @app.route('/upload', methods=['GET', 'POST'])
-@login_required
-def upload():
-    if current_user.role not in ['financeiro', 'admin']:
-        flash('Acesso nao autorizado.', 'danger')
-        return redirect(url_for('dashboard'))
-    if request.method == 'POST':
-        if 'pdf' not in request.files:
-            flash('Nenhum arquivo enviado.', 'danger')
-            return redirect(request.url)
-        pdf_file = request.files['pdf']
         if pdf_file.filename == '':
             flash('Nenhum arquivo selecionado.', 'danger')
             return redirect(request.url)
@@ -321,39 +308,8 @@ def upload():
             flash('PDF processado com sucesso!', 'success')
             return redirect(url_for('fechamento_detail', fc_id=fc.id))
         else:
-            flash('Arquivo invalido. Envie apenas arquivos .PDF', 'danger')
+            flash('Arquivo invalido. Envie apenas .PDF', 'danger')
             return redirect(request.url)
-    return render_template('upload.html', unidades=UNIDADES_ATIVAS)
-            filename = secure_filename(datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            pdf_file.save(filepath)
-            try:
-                data = extract_caixa_data(filepath)
-            except Exception as e:
-                flash('Erro ao processar PDF: ' + str(e), 'danger')
-                return redirect(request.url)
-            fc = FechamentoCaixa(
-                unidade=data.get('unidade', ''),
-                data_fechamento=data.get('data_fechamento', ''),
-                quem_fechou=data.get('quem_fechou', ''),
-                movimento_num=data.get('movimento_num', ''),
-                pdf_path=filepath,
-                dinheiro_saida=data.get('dinheiro_saida', 0),
-                dinheiro_encerramento=data.get('dinheiro_encerramento', 0),
-                faturado=data.get('faturado', 0),
-                uso_credito=data.get('uso_credito', 0),
-                deposito_bancario=data.get('deposito_bancario', 0),
-                cartao=data.get('cartao', 0),
-                cortesia=data.get('cortesia', 0),
-                tem_vendas_online=tem_vendas_online,
-                vendas_online=vendas_online_valor if tem_vendas_online else 0,
-                vendas_online_obs=vendas_online_obs if tem_vendas_online else '',
-                status='aguardando_financeiro',
-            )
-            db.session.add(fc)
-            db.session.commit()
-            flash('PDF processado com sucesso!', 'success')
-            return redirect(url_for('fechamento_detail', fc_id=fc.id))
     return render_template('upload.html', unidades=UNIDADES_ATIVAS)
 
 
@@ -594,14 +550,39 @@ def toggle_usuario(user_id):
     db.session.commit()
     return jsonify({'success': True, 'active': user.active})
 
-@app.route('/diagnostico')
-def diagnostico():
-    import os
-    db_url = os.environ.get('DATABASE_URL', 'sqlite')
-    return jsonify({
-        'database': db_url[:60],
-        'tabelas': db.engine.table_names() if hasattr(db.engine, 'table_names') else 'N/A'
-    })
+
+@app.route('/admin/usuarios/<int:user_id>/senha', methods=['POST'])
+@login_required
+def alterar_senha(user_id):
+    if current_user.role != 'admin' and current_user.id != user_id:
+        return jsonify({'error': 'Nao autorizado'}), 403
+    user = User.query.get_or_404(user_id)
+    data = request.json
+    nova_senha = data.get('senha', '')
+    if len(nova_senha) < 6:
+        return jsonify({'error': 'Senha deve ter pelo menos 6 caracteres'}), 400
+    user.set_password(nova_senha)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/minha-senha', methods=['GET', 'POST'])
+@login_required
+def minha_senha():
+    if request.method == 'POST':
+        data = request.json
+        senha_atual = data.get('senha_atual', '')
+        nova_senha = data.get('nova_senha', '')
+        if not current_user.check_password(senha_atual):
+            return jsonify({'error': 'Senha atual incorreta'}), 400
+        if len(nova_senha) < 6:
+            return jsonify({'error': 'Nova senha deve ter pelo menos 6 caracteres'}), 400
+        current_user.set_password(nova_senha)
+        db.session.commit()
+        return jsonify({'success': True})
+    return render_template('minha_senha.html')
+
+
 def init_db():
     with app.app_context():
         db.create_all()
