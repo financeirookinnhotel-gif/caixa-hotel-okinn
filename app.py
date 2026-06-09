@@ -109,14 +109,11 @@ class FechamentoCaixa(db.Model):
         }
         return labels.get(self.status, self.status)
 
-    def saude_score(self):
-        campos = ['diretor_check_dinheiro', 'diretor_check_cartao',
-                  'diretor_check_deposito', 'diretor_check_faturado',
-                  'diretor_check_uso_credito', 'diretor_check_cortesia']
-        if self.tem_vendas_online:
-            campos.append('diretor_check_vendas_online')
-        checks = sum(1 for c in campos if getattr(self, c))
-        return int((checks / len(campos)) * 100)
+    def tem_divergencia(self):
+        return bool(
+            (self.financeiro_obs and self.financeiro_obs.strip()) or
+            (self.diretor_obs and self.diretor_obs.strip())
+        )
 
 
 class MovimentacaoCofre(db.Model):
@@ -235,8 +232,16 @@ def dashboard():
     unidade_stats = {}
     for u in UNIDADES:
         fcs = [f for f in fechamentos if f.unidade == u]
-        ok = sum(1 for f in fcs if f.status == 'concluido')
-        unidade_stats[u] = {'total': len(fcs), 'ok': ok}
+        total_u = len(fcs)
+        concluidos_u = [f for f in fcs if f.status == 'concluido']
+        sem_divergencia = sum(1 for f in concluidos_u if not f.tem_divergencia())
+        com_divergencia = len(concluidos_u) - sem_divergencia
+        unidade_stats[u] = {
+            'total': total_u,
+            'ok': sem_divergencia,
+            'divergencia': com_divergencia,
+            'concluidos': len(concluidos_u),
+        }
     saldos, emprestimos_pendentes = calcular_saldos()
     total_cofre = sum(saldos.values())
     return render_template('dashboard.html',
