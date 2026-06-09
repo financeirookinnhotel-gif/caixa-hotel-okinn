@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Minha Senha{% endblock %}
+{% block page_title %}<i class="fas fa-key me-2"></i>Alterar Minha Senha{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header py-3">
+        <h6 class="mb-0"><i class="fas fa-lock me-2"></i>Alterar Senha</h6>
+      </div>
+      <div class="card-body p-4">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Senha Atual</label>
+          <input type="password" id="senhaAtual" class="form-control" placeholder="Sua senha atual">
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nova Senha</label>
+          <input type="password" id="novaSenha" class="form-control" placeholder="Minimo 6 caracteres">
+        </div>
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Confirmar Nova Senha</label>
+          <input type="password" id="confirmaSenha" class="form-control" placeholder="Repita a nova senha">
+        </div>
+        <button class="btn btn-primary w-100 fw-semibold" onclick="salvarSenha()">
+          <i class="fas fa-save me-2"></i>Salvar Nova Senha
+        </button>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary w-100 mt-2">
+          <i class="fas fa-arrow-left me-1"></i>Voltar
+        </a>
+        <div id="msgSenha" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function salvarSenha() {
+  var atual = document.getElementById('senhaAtual').value;
+  var nova = document.getElementById('novaSenha').value;
+  var confirma = document.getElementById('confirmaSenha').value;
+  var msg = document.getElementById('msgSenha');
+  if (!atual || !nova || !confirma) {
+    msg.innerHTML = '<div class="alert alert-danger">Preencha todos os campos.</div>';
+    return;
+  }
+  if (nova !== confirma) {
+    msg.innerHTML = '<div class="alert alert-danger">As senhas nao coincidem.</div>';
+    return;
+  }
+  if (nova.length < 6) {
+    msg.innerHTML = '<div class="alert alert-danger">Senha deve ter pelo menos 6 caracteres.</div>';
+    return;
+  }
+  fetch('/minha-senha', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({senha_atual: atual, nova_senha: nova})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success) {
+      msg.innerHTML = '<div class="alert alert-success">Senha alterada com sucesso!</div>';
+      document.getElementById('senhaAtual').value = '';
+      document.getElementById('novaSenha').value = '';
+      document.getElementById('confirmaSenha').value = '';
+    } else {
+      msg.innerHTML = '<div class="alert alert-danger">' + (d.error || 'Erro') + '</div>';
+    }
+  });
+}
+</script>
+{% endblock %}
