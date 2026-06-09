@@ -144,7 +144,7 @@ def extract_caixa_data(pdf_path):
         result['data_fechamento'] = enc_match.group(1)
         result['quem_fechou'] = resolver_fechador(enc_match.group(2))
 
-    # Dinheiro encerramento
+    # Dinheiro encerramento — MOVIMENTO + valor + Dinheiro
     dinheiro_encerramento = 0.0
     mov_din = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dinheiro', re.IGNORECASE)
     for match in mov_din.finditer(full_text):
@@ -153,17 +153,20 @@ def extract_caixa_data(pdf_path):
             dinheiro_encerramento += v
     result['dinheiro_encerramento'] = dinheiro_encerramento
 
-    # Dinheiro saida
+    # Dinheiro saida — linhas que NAO sao AP CTA e NAO sao MOVIMENTO
+    # Formato saida real: DD/MM HH:MMh DESCRICAO VALOR Dinheiro
+    # Formato antecipacao: DD/MM HH:MMh AP NNN CTA NNNNN Dinheiro VALOR
+    # A diferenca: saida tem valor ANTES de Dinheiro, antecipacao tem valor DEPOIS
+    # Mas ambos podem ter valor antes. O diferenciador e que antecipacao tem "AP NNN CTA"
     dinheiro_saida = 0.0
+    # Padrao para saidas reais: data/hora + historico SEM "AP NNN CTA" + valor + Dinheiro
     saida_pat = re.compile(
-        r'\d{2}/\d{2}\s+[\d:]+h\s+(.+?)\s+([\d.,]+)\s+Dinheiro',
+        r'\d{2}/\d{2}\s+[\d:]+h\s+((?!AP\s+\d+\s+CTA\s+\d+)(?!MOVIMENTO).+?)\s+([\d.,]+)\s+Dinheiro',
         re.IGNORECASE
     )
     for match in saida_pat.finditer(full_text):
         historico = match.group(1).strip()
         valor = normalizar_valor(match.group(2))
-        if 'MOVIMENTO' in historico.upper():
-            continue
         if is_numero_conta(valor):
             continue
         if valor > 0:
