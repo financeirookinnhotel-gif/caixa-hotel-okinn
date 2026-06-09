@@ -21,6 +21,12 @@ UNIDADE_MAP = {
     'OK INN TUBARAO': 'Ok Inn Tubarao',
     'OK INN TUBARÃO': 'Ok Inn Tubarao',
     'OK INN EXPRESS': 'Ok Inn Express Tubarao',
+    'OK INN HOTEL CRICIUMA EXPRESS': 'Criciuma Express',
+    'OK INN HOTEL CRICIÚMA EXPRESS': 'Criciuma Express',
+    'OK INN HOTEL CRICIUMA CENTRO': 'Criciuma Centro',
+    'OK INN HOTEL CRICIÚMA CENTRO': 'Criciuma Centro',
+    'OK INN HOTEL CRICIUMA': 'Criciuma Express',
+    'OK INN HOTEL CRICIÚMA': 'Criciuma Express',
     'CRICIUMA EXPRESS': 'Criciuma Express',
     'CRICIÚMA EXPRESS': 'Criciuma Express',
     'CRICIUMA CENTRO': 'Criciuma Centro',
@@ -51,9 +57,10 @@ def normalizar_valor(val_str):
 
 def resolver_unidade(texto):
     texto_upper = texto.upper().strip()
-    for key, val in UNIDADE_MAP.items():
+    # Ordena por tamanho decrescente para pegar o match mais especifico primeiro
+    for key in sorted(UNIDADE_MAP.keys(), key=len, reverse=True):
         if key in texto_upper:
-            return val
+            return UNIDADE_MAP[key]
     return None
 
 
@@ -156,7 +163,7 @@ def extract_caixa_data(pdf_path):
             dinheiro_saida += valor
     result['dinheiro_saida'] = dinheiro_saida
 
-    # Cheque — para Atlantico Sul e Renascenca vira deposito bancario
+    # Cheque
     cheque_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cheque', re.IGNORECASE)
     cheque_total = sum(normalizar_valor(m.group(1)) for m in cheque_pat.finditer(full_text))
 
