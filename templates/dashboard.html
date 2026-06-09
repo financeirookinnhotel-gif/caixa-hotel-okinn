@@ -27,10 +27,6 @@
 .progress-thin { height: 6px; border-radius: 3px; background: #e0e6ef; overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
 .cofre-total { background: linear-gradient(135deg, #1a3a5c, #2563a8); border-radius: 12px; padding: 1.2rem; color: white; }
-.badge-aguardando_financeiro { background: #ffc107; color: #333; }
-.badge-aguardando_diretor { background: #0d6efd; color: white; }
-.badge-aguardando_cofre { background: #fd7e14; color: white; }
-.badge-concluido { background: #198754; color: white; }
 </style>
 {% endblock %}
 
@@ -70,13 +66,13 @@
   <div class="col-lg-8">
     <div class="card h-100">
       <div class="card-header py-3">
-        <h6 class="mb-0"><i class="fas fa-heartbeat me-2"></i>Saude por Unidade</h6>
+        <h6 class="mb-0"><i class="fas fa-heartbeat me-2"></i>Saude dos Caixas por Unidade</h6>
       </div>
       <div class="card-body">
         <div class="row g-3">
           {% for u in unidades %}
-          {% set stats = unidade_stats.get(u, {'total': 0, 'ok': 0}) %}
-          {% set pct = (stats.ok / stats.total * 100)|int if stats.total > 0 else 0 %}
+          {% set stats = unidade_stats.get(u, {'total': 0, 'ok': 0, 'divergencia': 0, 'concluidos': 0}) %}
+          {% set pct = (stats.ok / stats.concluidos * 100)|int if stats.concluidos > 0 else 0 %}
           {% set ativa = u != 'Floripa Coqueiros' %}
           <div class="col-md-6">
             <div class="unidade-card {{ 'inativa' if not ativa else '' }}">
@@ -93,8 +89,13 @@
                 <div class="progress-fill" style="width:{{ pct }}%; background:{{ '#198754' if pct==100 else '#20c997' if pct>=75 else '#ffc107' if pct>=50 else '#dc3545' }}"></div>
               </div>
               <div class="d-flex justify-content-between">
-                <small class="text-muted">{{ stats.total }} fechamentos</small>
-                <small class="text-muted">{{ stats.ok }} ok / {{ stats.total - stats.ok }} pendentes</small>
+                <small class="text-muted">{{ stats.concluidos }} concluidos</small>
+                <small>
+                  <span class="text-success">{{ stats.ok }} sem obs</span>
+                  {% if stats.divergencia > 0 %}
+                  &nbsp;·&nbsp;<span class="text-danger">{{ stats.divergencia }} com obs</span>
+                  {% endif %}
+                </small>
               </div>
               {% endif %}
             </div>
@@ -112,11 +113,9 @@
       </div>
       <div class="card-body p-0">
         <div class="list-group list-group-flush">
-          {% set tem_saldo = false %}
           {% for u in unidades %}
           {% set saldo = saldos.get(u, 0) %}
           {% if saldo > 0 %}
-          {% set tem_saldo = true %}
           <a href="{{ url_for('extrato_unidade', unidade=u) }}"
              class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3">
             <span style="font-size:0.83rem; font-weight:500">{{ u }}</span>
