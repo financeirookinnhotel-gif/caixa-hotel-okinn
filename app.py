@@ -540,7 +540,14 @@ def toggle_usuario(user_id):
     db.session.commit()
     return jsonify({'success': True, 'active': user.active})
 
-
+@app.route('/diagnostico')
+def diagnostico():
+    import os
+    db_url = os.environ.get('DATABASE_URL', 'sqlite')
+    return jsonify({
+        'database': db_url[:60],
+        'tabelas': db.engine.table_names() if hasattr(db.engine, 'table_names') else 'N/A'
+    })
 def init_db():
     with app.app_context():
         db.create_all()
