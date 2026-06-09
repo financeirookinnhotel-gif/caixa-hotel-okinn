@@ -71,8 +71,10 @@ class FechamentoCaixa(db.Model):
     deposito_bancario = db.Column(db.Float, default=0.0)
     cartao = db.Column(db.Float, default=0.0)
     cortesia = db.Column(db.Float, default=0.0)
+    cheque = db.Column(db.Float, default=0.0)
     vendas_online = db.Column(db.Float, default=0.0)
     vendas_online_obs = db.Column(db.String(256))
+    cofre_opcional = db.Column(db.Boolean, default=False)
     financeiro_check_dinheiro = db.Column(db.Boolean, default=False)
     financeiro_check_cartao = db.Column(db.Boolean, default=False)
     financeiro_check_deposito = db.Column(db.Boolean, default=False)
@@ -303,6 +305,8 @@ def upload():
                 deposito_bancario=data.get('deposito_bancario', 0),
                 cartao=data.get('cartao', 0),
                 cortesia=data.get('cortesia', 0),
+                cheque=data.get('cheque', 0),
+                cofre_opcional=data.get('cofre_opcional', False),
                 tem_vendas_online=tem_vendas_online,
                 vendas_online=vendas_online_valor if tem_vendas_online else 0,
                 vendas_online_obs=vendas_online_obs if tem_vendas_online else '',
@@ -366,16 +370,15 @@ def diretor_check(fc_id):
     fc = FechamentoCaixa.query.get_or_404(fc_id)
     data = request.json
     fc.diretor_check_dinheiro = data.get('check_dinheiro', False)
-    fc.diretor_check_cartao = data.get('check_cartao', False)
-    fc.diretor_check_deposito = data.get('check_deposito', False)
-    fc.diretor_check_faturado = data.get('check_faturado', False)
-    fc.diretor_check_uso_credito = data.get('check_uso_credito', False)
-    fc.diretor_check_cortesia = data.get('check_cortesia', False)
-    fc.diretor_check_vendas_online = data.get('check_vendas_online', False)
     fc.diretor_obs = data.get('obs', '')
     fc.diretor_user_id = current_user.id
     fc.diretor_at = datetime.utcnow()
-    fc.status = 'aguardando_cofre'
+    enviar_cofre = data.get('enviar_cofre', True)
+    if enviar_cofre:
+        fc.status = 'aguardando_cofre'
+    else:
+        fc.cofre_confirmado = False
+        fc.status = 'concluido'
     db.session.commit()
     return jsonify({'success': True, 'message': 'Conferencia do Diretor salva!'})
 
