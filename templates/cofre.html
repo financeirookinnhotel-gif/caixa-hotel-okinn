@@ -12,6 +12,7 @@
 .saldo-card .valor { font-size: 1.4rem; font-weight: 800; }
 .saldo-card .valor.positivo { color: #198754; }
 .saldo-card .valor.negativo { color: #dc3545; }
+.saldo-card.leve-card { border: 2px dashed #6d28d9; background: #faf5ff; }
 .saldo-total { background: linear-gradient(135deg, #1a3a5c, #2563a8); border-radius: 16px; padding: 1.5rem; color: white; }
 .mov-tipo-saldo_inicial { border-left: 4px solid #6d28d9; }
 .mov-tipo-entrada_manual { border-left: 4px solid #198754; }
@@ -42,11 +43,13 @@
 {% if emprestimos_pendentes %}
 <div class="alert alert-warning mb-4">
   <i class="fas fa-exclamation-triangle me-2"></i>
-  <strong>{{ emprestimos_pendentes|length }} emprestimo(s) pendente(s)</strong>
+  <strong>{{ emprestimos_pendentes|length }} emprestimo(s) pendente(s) de devolucao</strong>
   {% for emp in emprestimos_pendentes %}
   <div class="mt-1" style="font-size:0.9rem">
     <i class="fas fa-arrow-right me-1"></i>
-    {{ emp.unidade_origem }} emprestou R$ {{ '{:,.2f}'.format(emp.valor) }} para {{ emp.unidade_destino }}
+    <strong>{{ emp.unidade_origem }}</strong> emprestou
+    <strong>R$ {{ '{:,.2f}'.format(emp.valor) }}</strong>
+    para <strong>{{ emp.unidade_destino }}</strong>
     em {{ emp.data }} — {{ emp.descricao }}
     {% if current_user.role in ['diretor', 'admin'] %}
     <button class="btn btn-sm btn-outline-success ms-2 py-0"
@@ -63,12 +66,16 @@
   {% for u in unidades %}
   {% set saldo = saldos.get(u, 0) %}
   {% set ativa = u != 'Floripa Coqueiros' %}
+  {% set is_leve = u == 'Leve' %}
   <div class="col-md-6 col-lg-4 col-xl-3">
-    <div class="saldo-card {{ 'opacity-50' if not ativa else '' }}"
-         onclick="{% if ativa %}window.location='/cofre/extrato/{{ u }}'{% endif %}">
+    <div class="saldo-card {{ 'leve-card' if is_leve else '' }} {{ 'opacity-50' if not ativa and not is_leve else '' }}"
+         onclick="{% if ativa or is_leve %}window.location='/cofre/extrato/{{ u }}'{% endif %}">
       <div class="d-flex justify-content-between align-items-start mb-1">
-        <span class="fw-semibold" style="font-size:0.82rem">{{ u }}</span>
-        {% if not ativa %}
+        <span class="fw-semibold" style="font-size:0.82rem">
+          {{ u }}
+          {% if is_leve %}<span class="badge bg-purple ms-1" style="background:#6d28d9; font-size:0.65rem">Virtual</span>{% endif %}
+        </span>
+        {% if not ativa and not is_leve %}
         <span class="badge bg-secondary" style="font-size:0.7rem">Inativo</span>
         {% else %}
         <i class="fas fa-chevron-right text-muted" style="font-size:0.75rem; margin-top:3px"></i>
@@ -104,7 +111,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for mov in movimentacoes[:30] %}
+          {% for mov in movimentacoes[:50] %}
           <tr class="mov-tipo-{{ mov.tipo }}">
             <td class="px-3 py-2" style="font-size:0.85rem">{{ mov.data }}</td>
             <td style="font-size:0.85rem">
@@ -124,7 +131,16 @@
               {% elif mov.tipo == 'saida_rateio' %}
                 {% for r in mov.rateios %}{{ r.unidade }}{% if not loop.last %}, {% endif %}{% endfor %}
               {% elif mov.tipo in ['emprestimo', 'devolucao'] %}
-                {{ mov.unidade_origem }} para {{ mov.unidade_destino }}
+                <span class="text-primary fw-semibold">{{ mov.unidade_origem }}</span>
+                <i class="fas fa-arrow-right mx-1 text-muted" style="font-size:0.75rem"></i>
+                {{ mov.unidade_destino }}
+                {% if mov.tipo == 'emprestimo' %}
+                  {% if mov.emprestimo_quitado %}
+                    <span class="badge bg-success ms-1" style="font-size:0.65rem">Quitado</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem">Pendente</span>
+                  {% endif %}
+                {% endif %}
               {% endif %}
             </td>
             <td style="font-size:0.85rem; font-weight:600">R$ {{ '{:,.2f}'.format(mov.valor) }}</td>
@@ -183,7 +199,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold">Descricao</label>
-          <input type="text" id="descricaoMov" class="form-control" placeholder="Ex: Aluguel junho...">
+          <input type="text" id="descricaoMov" class="form-control" placeholder="Ex: Aluguel junho, Pagamento fornecedor...">
         </div>
         <div id="campoUnidade" class="mb-3" style="display:none">
           <label class="form-label fw-semibold">Unidade</label>
@@ -195,9 +211,13 @@
           </select>
         </div>
         <div id="campoEmprestimo" style="display:none">
+          <div class="alert alert-info py-2 mb-3">
+            <i class="fas fa-info-circle me-1"></i>
+            O valor sera <strong>debitado apenas de quem empresta</strong>. O destino fica registrado como devedor.
+          </div>
           <div class="row g-3 mb-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Unidade que Empresta</label>
+              <label class="form-label fw-semibold">Unidade que Empresta (debita)</label>
               <select id="unidadeOrigem" class="form-select">
                 <option value="">Selecione...</option>
                 {% for u in unidades_ativas %}
@@ -206,7 +226,7 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Unidade que Recebe</label>
+              <label class="form-label fw-semibold">Unidade Devedora (destino)</label>
               <select id="unidadeDestino" class="form-select">
                 <option value="">Selecione...</option>
                 {% for u in unidades_ativas %}
@@ -260,12 +280,12 @@
       <div class="modal-body">
         <input type="hidden" id="devEmprestimoId">
         <div class="mb-3">
-          <label class="form-label fw-semibold">Unidade que Devolve</label>
-          <input type="text" id="devUnidadeDestino" class="form-control" readonly>
+          <label class="form-label fw-semibold">Unidade que Emprestou (recebe de volta)</label>
+          <input type="text" id="devUnidadeOrigem" class="form-control" readonly>
         </div>
         <div class="mb-3">
-          <label class="form-label fw-semibold">Unidade que Recebe</label>
-          <input type="text" id="devUnidadeOrigem" class="form-control" readonly>
+          <label class="form-label fw-semibold">Unidade Devedora (quem devolve)</label>
+          <input type="text" id="devUnidadeDestino" class="form-control" readonly>
         </div>
         <div class="mb-3">
           <label class="form-label fw-semibold">Valor (R$)</label>
@@ -283,7 +303,7 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-success fw-semibold" onclick="salvarDevolucao()">
-          <i class="fas fa-check me-1"></i>Confirmar
+          <i class="fas fa-check me-1"></i>Confirmar Devolucao
         </button>
       </div>
     </div>
@@ -333,7 +353,6 @@ function salvarMovimentacao() {
     data: dataFormatada,
     obs: document.getElementById('obsMov').value
   };
-
   if (tipo === 'saldo_inicial' || tipo === 'entrada_manual' || tipo === 'saida') {
     body.unidade = document.getElementById('unidadeMov').value;
     body.valor = parseFloat(document.getElementById('valorMov').value || 0);
@@ -354,7 +373,6 @@ function salvarMovimentacao() {
     if (!body.unidade_origem || !body.unidade_destino) { alert('Selecione as unidades.'); return; }
     if (!body.valor || body.valor <= 0) { alert('Informe o valor.'); return; }
   }
-
   fetch('/cofre/movimentacao', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -362,11 +380,8 @@ function salvarMovimentacao() {
   }).then(function(r) {
     return r.json();
   }).then(function(d) {
-    if (d.success) {
-      location.reload();
-    } else {
-      alert(d.error || 'Erro ao salvar.');
-    }
+    if (d.success) location.reload();
+    else alert(d.error || 'Erro ao salvar.');
   }).catch(function(e) {
     alert('Erro de conexao: ' + e);
   });
@@ -397,9 +412,7 @@ function salvarDevolucao() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
-  }).then(function(r) {
-    return r.json();
-  }).then(function(d) {
+  }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.success) location.reload();
     else alert(d.error || 'Erro');
   });
