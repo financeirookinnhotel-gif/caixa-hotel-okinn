@@ -174,9 +174,14 @@ def calcular_saldos():
             if mov.unidade in saldos:
                 saldos[mov.unidade] -= mov.valor
         elif mov.tipo == 'saida_rateio':
+            # Debita de cada unidade do rateio
             for rateio in mov.rateios:
                 if rateio.unidade in saldos:
                     saldos[rateio.unidade] -= rateio.valor
+            # Debita o total da unidade de origem (de onde saiu o dinheiro fisico)
+            if mov.unidade_origem and mov.unidade_origem in saldos:
+                total_rateio = sum(r.valor for r in mov.rateios)
+                saldos[mov.unidade_origem] -= total_rateio
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] -= mov.valor
@@ -301,7 +306,7 @@ def upload():
                 uso_credito=data.get('uso_credito', 0),
                 deposito_bancario=data.get('deposito_bancario', 0),
                 cartao=data.get('cartao', 0),
-                cortesia=data.get('cortesia', 0),
+                cortesia=data.get('cartao', 0),
                 cheque=data.get('cheque', 0),
                 cofre_opcional=data.get('cofre_opcional', False),
                 tem_vendas_online=tem_vendas_online,
@@ -452,9 +457,8 @@ def extrato_unidade(unidade):
                 if r.unidade == unidade:
                     movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao + (' (origem: ' + mov.unidade_origem + ')' if mov.unidade_origem else ''), 'entrada': 0, 'saida': r.valor})
             if mov.unidade_origem == unidade:
-                total_rateio = sum(r.valor for r in mov.rateios if r.unidade != unidade)
-                if total_rateio > 0:
-                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio (Origem)', 'descricao': 'Dinheiro fisico saiu daqui: ' + mov.descricao, 'entrada': 0, 'saida': 0})
+                total_rateio = sum(r.valor for r in mov.rateios)
+                movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio Origem', 'descricao': 'Dinheiro fisico saiu daqui: ' + mov.descricao, 'entrada': 0, 'saida': total_rateio})
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem == unidade:
                 status_emp = ' (QUITADO)' if mov.emprestimo_quitado else ' (PENDENTE)'
@@ -497,11 +501,13 @@ def relatorio_emprestimos():
             pass
     total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
     total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
+    total_geral = total_pendente + total_quitado
     return render_template('relatorio_emprestimos.html',
                            emprestimos=emprestimos,
                            data_ini=data_ini, data_fim=data_fim,
                            total_pendente=total_pendente,
-                           total_quitado=total_quitado)
+                           total_quitado=total_quitado,
+                           total_geral=total_geral)
 
 
 @app.route('/cofre/emprestimos/pdf')
