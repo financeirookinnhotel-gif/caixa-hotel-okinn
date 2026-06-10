@@ -87,7 +87,7 @@
         <i class="fas fa-chevron-right text-muted" style="font-size:0.75rem; margin-top:3px"></i>
         {% endif %}
       </div>
-      <div class="valor {{ 'positivo' if saldo_exibir >= 0 else 'negativo' }}">
+      <div class="valor positivo">
         R$ {{ '{:,.2f}'.format(saldo_exibir) }}
       </div>
       <small class="text-muted">Clique para ver extrato</small>
@@ -135,6 +135,10 @@
               {% if mov.tipo in ['saldo_inicial', 'entrada_manual', 'saida'] %}
                 {{ mov.unidade }}
               {% elif mov.tipo == 'saida_rateio' %}
+                {% if mov.unidade_origem %}
+                <span class="text-primary fw-semibold">{{ mov.unidade_origem }}</span>
+                <i class="fas fa-arrow-right mx-1 text-muted" style="font-size:0.7rem"></i>
+                {% endif %}
                 {% for r in mov.rateios %}{{ r.unidade }}{% if not loop.last %}, {% endif %}{% endfor %}
               {% elif mov.tipo in ['emprestimo', 'devolucao'] %}
                 <span class="text-primary fw-semibold">{{ mov.unidade_origem }}</span>
@@ -243,8 +247,17 @@
           </div>
         </div>
         <div id="campoRateio" style="display:none">
-          <label class="form-label fw-semibold">Rateio por Unidade</label>
-          <small class="text-muted d-block mb-2">Informe o valor que sai de cada unidade participante.</small>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Unidade de Origem (de onde sai o dinheiro fisico)</label>
+            <select id="rateioOrigem" class="form-select">
+              <option value="">Selecione...</option>
+              {% for u in unidades_ativas %}
+              <option value="{{ u }}">{{ u }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <label class="form-label fw-semibold">Rateio por Unidade (desconto no saldo de cada)</label>
+          <small class="text-muted d-block mb-2">Informe o valor que sai do saldo de cada unidade participante.</small>
           <div class="row g-2 mb-2">
             {% for u in unidades_ativas %}
             <div class="col-md-6">
@@ -363,6 +376,8 @@ function salvarMovimentacao() {
     if (!body.unidade) { alert('Selecione a unidade.'); return; }
     if (!body.valor || body.valor <= 0) { alert('Informe o valor.'); return; }
   } else if (tipo === 'saida_rateio') {
+    body.unidade_origem = document.getElementById('rateioOrigem').value;
+    if (!body.unidade_origem) { alert('Selecione a unidade de origem.'); return; }
     body.rateios = [];
     document.querySelectorAll('.rateio-input').forEach(function(inp) {
       var v = parseFloat(inp.value || 0);
