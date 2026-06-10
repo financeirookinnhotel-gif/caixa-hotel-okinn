@@ -450,7 +450,11 @@ def extrato_unidade(unidade):
         elif mov.tipo == 'saida_rateio':
             for r in mov.rateios:
                 if r.unidade == unidade:
-                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao, 'entrada': 0, 'saida': r.valor})
+                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao + (' (origem: ' + mov.unidade_origem + ')' if mov.unidade_origem else ''), 'entrada': 0, 'saida': r.valor})
+            if mov.unidade_origem == unidade:
+                total_rateio = sum(r.valor for r in mov.rateios if r.unidade != unidade)
+                if total_rateio > 0:
+                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio (Origem)', 'descricao': 'Dinheiro fisico saiu daqui: ' + mov.descricao, 'entrada': 0, 'saida': 0})
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem == unidade:
                 status_emp = ' (QUITADO)' if mov.emprestimo_quitado else ' (PENDENTE)'
@@ -478,8 +482,7 @@ def extrato_unidade(unidade):
 def relatorio_emprestimos():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    query = MovimentacaoCofre.query.filter_by(tipo='emprestimo')
-    emprestimos = query.order_by(MovimentacaoCofre.created_at.desc()).all()
+    emprestimos = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
@@ -506,8 +509,7 @@ def relatorio_emprestimos():
 def relatorio_emprestimos_pdf():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    query = MovimentacaoCofre.query.filter_by(tipo='emprestimo')
-    emprestimos = query.order_by(MovimentacaoCofre.created_at.desc()).all()
+    emprestimos = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
@@ -529,8 +531,6 @@ def relatorio_emprestimos_pdf():
         from reportlab.lib.units import cm
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
         from reportlab.lib.enums import TA_CENTER
-        import os
-        os.makedirs('relatorios', exist_ok=True)
         path = 'relatorios/emprestimos_' + datetime.now().strftime('%Y%m%d%H%M%S') + '.pdf'
         doc = SimpleDocTemplate(path, pagesize=A4,
                                 topMargin=1.5*cm, bottomMargin=1.5*cm,
@@ -542,7 +542,6 @@ def relatorio_emprestimos_pdf():
                                       fontSize=8, textColor=colors.grey, alignment=TA_CENTER)
         story = []
         story.append(Paragraph('RELATORIO DE EMPRESTIMOS — OK INN / LEVE HOTEIS', title_style))
-        periodo = ''
         if data_ini and data_fim:
             periodo = 'Periodo: ' + data_ini + ' a ' + data_fim
         elif data_ini:
@@ -558,14 +557,8 @@ def relatorio_emprestimos_pdf():
         dados = [['Data', 'Origem', 'Destino', 'Valor', 'Descricao', 'Status']]
         for emp in emprestimos:
             status = 'QUITADO' if emp.emprestimo_quitado else 'PENDENTE'
-            dados.append([
-                emp.data,
-                emp.unidade_origem or '-',
-                emp.unidade_destino or '-',
-                'R$ ' + '{:,.2f}'.format(emp.valor),
-                emp.descricao[:40],
-                status,
-            ])
+            dados.append([emp.data, emp.unidade_origem or '-', emp.unidade_destino or '-',
+                          'R$ ' + '{:,.2f}'.format(emp.valor), emp.descricao[:40], status])
         dados.append(['', '', '', '', 'Total Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente)])
         dados.append(['', '', '', '', 'Total Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado)])
         t = Table(dados, colWidths=[2.2*cm, 3.5*cm, 3.5*cm, 2.5*cm, 4.5*cm, 2.3*cm])
@@ -578,7 +571,6 @@ def relatorio_emprestimos_pdf():
             ('ROWBACKGROUNDS', (0, 1), (-1, -3), [colors.white, colors.HexColor('#f8f9fa')]),
             ('PADDING', (0, 0), (-1, -1), 5),
             ('FONTNAME', (0, -2), (-1, -1), 'Helvetica-Bold'),
-            ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
         ]))
         story.append(t)
         story.append(Spacer(1, 1*cm))
@@ -586,8 +578,7 @@ def relatorio_emprestimos_pdf():
         story.append(Spacer(1, 0.2*cm))
         story.append(Paragraph(
             'Relatorio gerado em ' + datetime.now().strftime('%d/%m/%Y as %H:%M') + ' | Sistema OK INN Leve Hoteis',
-            footer_style
-        ))
+            footer_style))
         doc.build(story)
         return send_file(path, as_attachment=True, download_name='relatorio_emprestimos.pdf')
     except Exception as e:
@@ -614,6 +605,7 @@ def nova_movimentacao():
         mov.valor = float(data.get('valor', 0))
     elif tipo == 'saida_rateio':
         mov.valor = float(data.get('valor_total', 0))
+        mov.unidade_origem = data.get('unidade_origem', '')
         for r in data.get('rateios', []):
             if float(r.get('valor', 0)) > 0:
                 mov.rateios.append(RateioCofre(unidade=r['unidade'], valor=float(r['valor'])))
