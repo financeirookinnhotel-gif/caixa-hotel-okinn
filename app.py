@@ -178,13 +178,11 @@ def calcular_saldos():
                 if rateio.unidade in saldos:
                     saldos[rateio.unidade] -= rateio.valor
         elif mov.tipo == 'emprestimo':
-            # Debita APENAS de quem emprestou — destino nao recebe no saldo
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] -= mov.valor
             if not mov.emprestimo_quitado:
                 emprestimos_pendentes.append(mov)
         elif mov.tipo == 'devolucao':
-            # Credita de volta para quem emprestou
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] += mov.valor
     return saldos, emprestimos_pendentes
@@ -461,7 +459,7 @@ def extrato_unidade(unidade):
                     'tipo': 'Emprestimo Concedido',
                     'descricao': 'Para ' + mov.unidade_destino + ': ' + mov.descricao + status_emp,
                     'entrada': 0,
-                    'saida': mov.valor
+                    'saida': mov.valor,
                 })
         elif mov.tipo == 'devolucao':
             if mov.unidade_origem == unidade:
@@ -473,6 +471,128 @@ def extrato_unidade(unidade):
     saldos, _ = calcular_saldos()
     return render_template('extrato.html', unidade=unidade, movimentacoes=movs_unidade,
                            saldo_atual=saldos.get(unidade, 0), unidades=UNIDADES_COFRE)
+
+
+@app.route('/cofre/emprestimos')
+@login_required
+def relatorio_emprestimos():
+    data_ini = request.args.get('data_ini', '')
+    data_fim = request.args.get('data_fim', '')
+    query = MovimentacaoCofre.query.filter_by(tipo='emprestimo')
+    emprestimos = query.order_by(MovimentacaoCofre.created_at.desc()).all()
+    if data_ini:
+        try:
+            dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+        except Exception:
+            pass
+    if data_fim:
+        try:
+            dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+        except Exception:
+            pass
+    total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
+    total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
+    return render_template('relatorio_emprestimos.html',
+                           emprestimos=emprestimos,
+                           data_ini=data_ini, data_fim=data_fim,
+                           total_pendente=total_pendente,
+                           total_quitado=total_quitado)
+
+
+@app.route('/cofre/emprestimos/pdf')
+@login_required
+def relatorio_emprestimos_pdf():
+    data_ini = request.args.get('data_ini', '')
+    data_fim = request.args.get('data_fim', '')
+    query = MovimentacaoCofre.query.filter_by(tipo='emprestimo')
+    emprestimos = query.order_by(MovimentacaoCofre.created_at.desc()).all()
+    if data_ini:
+        try:
+            dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+        except Exception:
+            pass
+    if data_fim:
+        try:
+            dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+        except Exception:
+            pass
+    total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
+    total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib import colors
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+        from reportlab.lib.enums import TA_CENTER
+        import os
+        os.makedirs('relatorios', exist_ok=True)
+        path = 'relatorios/emprestimos_' + datetime.now().strftime('%Y%m%d%H%M%S') + '.pdf'
+        doc = SimpleDocTemplate(path, pagesize=A4,
+                                topMargin=1.5*cm, bottomMargin=1.5*cm,
+                                leftMargin=2*cm, rightMargin=2*cm)
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle('Title', parent=styles['Title'],
+                                     fontSize=16, textColor=colors.HexColor('#1a3a5c'), spaceAfter=6)
+        footer_style = ParagraphStyle('Footer', parent=styles['Normal'],
+                                      fontSize=8, textColor=colors.grey, alignment=TA_CENTER)
+        story = []
+        story.append(Paragraph('RELATORIO DE EMPRESTIMOS — OK INN / LEVE HOTEIS', title_style))
+        periodo = ''
+        if data_ini and data_fim:
+            periodo = 'Periodo: ' + data_ini + ' a ' + data_fim
+        elif data_ini:
+            periodo = 'A partir de: ' + data_ini
+        elif data_fim:
+            periodo = 'Ate: ' + data_fim
+        else:
+            periodo = 'Todos os periodos'
+        story.append(Paragraph(periodo, styles['Normal']))
+        story.append(Spacer(1, 0.3*cm))
+        story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#1a3a5c')))
+        story.append(Spacer(1, 0.3*cm))
+        dados = [['Data', 'Origem', 'Destino', 'Valor', 'Descricao', 'Status']]
+        for emp in emprestimos:
+            status = 'QUITADO' if emp.emprestimo_quitado else 'PENDENTE'
+            dados.append([
+                emp.data,
+                emp.unidade_origem or '-',
+                emp.unidade_destino or '-',
+                'R$ ' + '{:,.2f}'.format(emp.valor),
+                emp.descricao[:40],
+                status,
+            ])
+        dados.append(['', '', '', '', 'Total Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente)])
+        dados.append(['', '', '', '', 'Total Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado)])
+        t = Table(dados, colWidths=[2.2*cm, 3.5*cm, 3.5*cm, 2.5*cm, 4.5*cm, 2.3*cm])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -3), 0.5, colors.lightgrey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -3), [colors.white, colors.HexColor('#f8f9fa')]),
+            ('PADDING', (0, 0), (-1, -1), 5),
+            ('FONTNAME', (0, -2), (-1, -1), 'Helvetica-Bold'),
+            ('ALIGN', (3, 0), (3, -1), 'RIGHT'),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 1*cm))
+        story.append(HRFlowable(width='100%', thickness=1, color=colors.lightgrey))
+        story.append(Spacer(1, 0.2*cm))
+        story.append(Paragraph(
+            'Relatorio gerado em ' + datetime.now().strftime('%d/%m/%Y as %H:%M') + ' | Sistema OK INN Leve Hoteis',
+            footer_style
+        ))
+        doc.build(story)
+        return send_file(path, as_attachment=True, download_name='relatorio_emprestimos.pdf')
+    except Exception as e:
+        flash('Erro ao gerar PDF: ' + str(e), 'danger')
+        return redirect(url_for('relatorio_emprestimos'))
 
 
 @app.route('/cofre/movimentacao', methods=['POST'])
