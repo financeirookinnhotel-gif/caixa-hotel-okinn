@@ -39,6 +39,7 @@ UNIDADES = [
     'You HI 01',
 ]
 UNIDADES_ATIVAS = [u for u in UNIDADES if u != 'Floripa Coqueiros']
+UNIDADES_COFRE = UNIDADES + ['Leve']
 ROLES = ['financeiro', 'diretor', 'admin']
 
 
@@ -155,7 +156,7 @@ class RateioCofre(db.Model):
 
 
 def calcular_saldos():
-    saldos = {u: 0.0 for u in UNIDADES}
+    saldos = {u: 0.0 for u in UNIDADES_COFRE}
     emprestimos_pendentes = []
     fcs = FechamentoCaixa.query.filter_by(cofre_confirmado=True).all()
     for fc in fcs:
@@ -177,17 +178,15 @@ def calcular_saldos():
                 if rateio.unidade in saldos:
                     saldos[rateio.unidade] -= rateio.valor
         elif mov.tipo == 'emprestimo':
+            # Debita APENAS de quem emprestou — destino nao recebe no saldo
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] -= mov.valor
-            if mov.unidade_destino in saldos:
-                saldos[mov.unidade_destino] += mov.valor
             if not mov.emprestimo_quitado:
                 emprestimos_pendentes.append(mov)
         elif mov.tipo == 'devolucao':
+            # Credita de volta para quem emprestou
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] += mov.valor
-            if mov.unidade_destino in saldos:
-                saldos[mov.unidade_destino] -= mov.valor
     return saldos, emprestimos_pendentes
 
 
@@ -245,7 +244,7 @@ def dashboard():
             'concluidos': len(concluidos_u),
         }
     saldos, emprestimos_pendentes = calcular_saldos()
-    total_cofre = sum(saldos.values())
+    total_cofre = sum(v for k, v in saldos.items() if k != 'Leve')
     return render_template('dashboard.html',
                            total=total, concluidos=concluidos, pendentes=pendentes,
                            unidade_stats=unidade_stats, unidades=UNIDADES,
@@ -418,28 +417,30 @@ def gerar_relatorio(fc_id):
 @login_required
 def cofre():
     saldos, emprestimos_pendentes = calcular_saldos()
-    total_cofre = sum(saldos.values())
+    total_cofre = sum(v for k, v in saldos.items() if k != 'Leve')
     movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.desc()).all()
     return render_template('cofre.html',
                            saldos=saldos, total_cofre=total_cofre,
                            emprestimos_pendentes=emprestimos_pendentes,
-                           movimentacoes=movs, unidades=UNIDADES,
-                           unidades_ativas=UNIDADES_ATIVAS)
+                           movimentacoes=movs,
+                           unidades=UNIDADES_COFRE,
+                           unidades_ativas=UNIDADES_ATIVAS + ['Leve'])
 
 
 @app.route('/cofre/extrato/<unidade>')
 @login_required
 def extrato_unidade(unidade):
     movs_unidade = []
-    fcs = FechamentoCaixa.query.filter_by(unidade=unidade, cofre_confirmado=True).order_by(FechamentoCaixa.cofre_at.asc()).all()
-    for fc in fcs:
-        movs_unidade.append({
-            'data': fc.cofre_at.strftime('%d/%m/%Y') if fc.cofre_at else fc.data_fechamento,
-            'tipo': 'Entrada Caixa',
-            'descricao': 'Fechamento Mov. #' + str(fc.movimento_num),
-            'entrada': fc.dinheiro_encerramento,
-            'saida': 0,
-        })
+    if unidade != 'Leve':
+        fcs = FechamentoCaixa.query.filter_by(unidade=unidade, cofre_confirmado=True).order_by(FechamentoCaixa.cofre_at.asc()).all()
+        for fc in fcs:
+            movs_unidade.append({
+                'data': fc.cofre_at.strftime('%d/%m/%Y') if fc.cofre_at else fc.data_fechamento,
+                'tipo': 'Entrada Caixa',
+                'descricao': 'Fechamento Mov. #' + str(fc.movimento_num),
+                'entrada': fc.dinheiro_encerramento,
+                'saida': 0,
+            })
     movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.asc()).all()
     for mov in movs:
         if mov.tipo == 'saldo_inicial' and mov.unidade == unidade:
@@ -454,21 +455,24 @@ def extrato_unidade(unidade):
                     movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao, 'entrada': 0, 'saida': r.valor})
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem == unidade:
-                movs_unidade.append({'data': mov.data, 'tipo': 'Emprestimo Concedido', 'descricao': 'Para ' + mov.unidade_destino + ': ' + mov.descricao, 'entrada': 0, 'saida': mov.valor})
-            elif mov.unidade_destino == unidade:
-                movs_unidade.append({'data': mov.data, 'tipo': 'Emprestimo Recebido', 'descricao': 'De ' + mov.unidade_origem + ': ' + mov.descricao, 'entrada': mov.valor, 'saida': 0})
+                status_emp = ' (QUITADO)' if mov.emprestimo_quitado else ' (PENDENTE)'
+                movs_unidade.append({
+                    'data': mov.data,
+                    'tipo': 'Emprestimo Concedido',
+                    'descricao': 'Para ' + mov.unidade_destino + ': ' + mov.descricao + status_emp,
+                    'entrada': 0,
+                    'saida': mov.valor
+                })
         elif mov.tipo == 'devolucao':
             if mov.unidade_origem == unidade:
                 movs_unidade.append({'data': mov.data, 'tipo': 'Devolucao Recebida', 'descricao': mov.descricao, 'entrada': mov.valor, 'saida': 0})
-            elif mov.unidade_destino == unidade:
-                movs_unidade.append({'data': mov.data, 'tipo': 'Devolucao Realizada', 'descricao': mov.descricao, 'entrada': 0, 'saida': mov.valor})
     saldo_acumulado = 0.0
     for m in movs_unidade:
         saldo_acumulado += m['entrada'] - m['saida']
         m['saldo'] = saldo_acumulado
     saldos, _ = calcular_saldos()
     return render_template('extrato.html', unidade=unidade, movimentacoes=movs_unidade,
-                           saldo_atual=saldos.get(unidade, 0), unidades=UNIDADES)
+                           saldo_atual=saldos.get(unidade, 0), unidades=UNIDADES_COFRE)
 
 
 @app.route('/cofre/movimentacao', methods=['POST'])
