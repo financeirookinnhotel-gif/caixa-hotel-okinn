@@ -770,7 +770,22 @@ def minha_senha():
         return jsonify({'success': True})
     return render_template('minha_senha.html')
 
-
+@app.route('/diagnostico/movs')
+@login_required
+def diagnostico_movs():
+    movs = MovimentacaoCofre.query.all()
+    resultado = []
+    for m in movs:
+        resultado.append({
+            'id': m.id,
+            'tipo': m.tipo,
+            'descricao': m.descricao,
+            'valor': m.valor,
+            'origem': m.unidade_origem,
+            'destino': m.unidade_destino,
+            'rateios': len(m.rateios),
+        })
+    return jsonify(resultado)
 def init_db():
     with app.app_context():
         db.create_all()
