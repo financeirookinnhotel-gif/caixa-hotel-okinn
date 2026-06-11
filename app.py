@@ -133,6 +133,7 @@ class MovimentacaoCofre(db.Model):
     unidade_destino = db.Column(db.String(120))
     emprestimo_quitado = db.Column(db.Boolean, default=False)
     emprestimo_quitado_at = db.Column(db.DateTime)
+    grupo_id = db.Column(db.String(50))  # agrupa emprestimos do mesmo rateio
     criado_por = db.relationship('User', foreign_keys=[created_by])
     rateios = db.relationship('RateioCofre', backref='movimentacao', lazy=True, cascade='all, delete-orphan')
 
@@ -141,7 +142,7 @@ class MovimentacaoCofre(db.Model):
             'saldo_inicial': 'Saldo Inicial',
             'entrada_manual': 'Entrada Manual',
             'saida': 'Saida',
-            'saida_rateio': 'Emprestimo com Rateio',
+            'saida_rateio': 'Emprestimo Multiplo',
             'emprestimo': 'Emprestimo',
             'devolucao': 'Devolucao',
         }
@@ -174,12 +175,10 @@ def calcular_saldos():
             if mov.unidade in saldos:
                 saldos[mov.unidade] -= mov.valor
         elif mov.tipo == 'saida_rateio':
-            # Debita o total apenas da unidade de origem (quem emprestou o dinheiro fisico)
-            # Os rateios sao informativos — mostram quem deve quanto
+            # Debita total da origem — rateios sao emprestimos individuais
             if mov.unidade_origem and mov.unidade_origem in saldos:
                 total_rateio = sum(r.valor for r in mov.rateios)
                 saldos[mov.unidade_origem] -= total_rateio
-            # Aparece como emprestimo pendente para controle
             if not mov.emprestimo_quitado:
                 emprestimos_pendentes.append(mov)
         elif mov.tipo == 'emprestimo':
@@ -455,11 +454,11 @@ def extrato_unidade(unidade):
         elif mov.tipo == 'saida_rateio':
             if mov.unidade_origem == unidade:
                 total_rateio = sum(r.valor for r in mov.rateios)
-                devedores = ', '.join([r.unidade + ' R$' + '{:,.0f}'.format(r.valor) for r in mov.rateios])
+                devedores = ' | '.join([r.unidade + ': R$' + '{:,.0f}'.format(r.valor) for r in mov.rateios])
                 movs_unidade.append({
                     'data': mov.data,
-                    'tipo': 'Emprestimo Rateio',
-                    'descricao': mov.descricao + ' | Devedores: ' + devedores,
+                    'tipo': 'Emprestimo Multiplo',
+                    'descricao': mov.descricao + ' — ' + devedores,
                     'entrada': 0,
                     'saida': total_rateio,
                 })
@@ -490,27 +489,54 @@ def extrato_unidade(unidade):
 def relatorio_emprestimos():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    # Busca emprestimos simples E emprestimos com rateio
-    todos = MovimentacaoCofre.query.filter(
-        MovimentacaoCofre.tipo.in_(['emprestimo', 'saida_rateio'])
-    ).order_by(MovimentacaoCofre.created_at.desc()).all()
+    # Busca emprestimos simples
+    emprestimos_simples = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
+    # Busca rateios e expande em registros por devedor
+    rateios = MovimentacaoCofre.query.filter_by(tipo='saida_rateio').order_by(MovimentacaoCofre.created_at.desc()).all()
+    todos = list(emprestimos_simples)
+    # Para rateios, cria entrada virtual por devedor
+    rateios_expandidos = []
+    for r in rateios:
+        for rateio in r.rateios:
+            rateios_expandidos.append({
+                'id': r.id,
+                'data': r.data,
+                'tipo': 'saida_rateio',
+                'unidade_origem': r.unidade_origem,
+                'unidade_destino': rateio.unidade,
+                'valor': rateio.valor,
+                'descricao': r.descricao,
+                'emprestimo_quitado': r.emprestimo_quitado,
+                'emprestimo_quitado_at': r.emprestimo_quitado_at,
+                'grupo_id': r.id,
+                'criado_por': r.criado_por,
+            })
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
             todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
             todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
-    total_pendente = sum(e.valor for e in todos if not e.emprestimo_quitado)
-    total_quitado = sum(e.valor for e in todos if e.emprestimo_quitado)
+    total_pendente = (
+        sum(e.valor for e in todos if not e.emprestimo_quitado) +
+        sum(e['valor'] for e in rateios_expandidos if not e['emprestimo_quitado'])
+    )
+    total_quitado = (
+        sum(e.valor for e in todos if e.emprestimo_quitado) +
+        sum(e['valor'] for e in rateios_expandidos if e['emprestimo_quitado'])
+    )
     total_geral = total_pendente + total_quitado
     return render_template('relatorio_emprestimos.html',
                            emprestimos=todos,
+                           rateios_expandidos=rateios_expandidos,
                            data_ini=data_ini, data_fim=data_fim,
                            total_pendente=total_pendente,
                            total_quitado=total_quitado,
@@ -522,23 +548,39 @@ def relatorio_emprestimos():
 def relatorio_emprestimos_pdf():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    todos = MovimentacaoCofre.query.filter(
-        MovimentacaoCofre.tipo.in_(['emprestimo', 'saida_rateio'])
-    ).order_by(MovimentacaoCofre.created_at.desc()).all()
+    emprestimos_simples = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
+    rateios = MovimentacaoCofre.query.filter_by(tipo='saida_rateio').order_by(MovimentacaoCofre.created_at.desc()).all()
+    todos = list(emprestimos_simples)
+    rateios_expandidos = []
+    for r in rateios:
+        for rateio in r.rateios:
+            rateios_expandidos.append({
+                'data': r.data, 'unidade_origem': r.unidade_origem,
+                'unidade_destino': rateio.unidade, 'valor': rateio.valor,
+                'descricao': r.descricao, 'emprestimo_quitado': r.emprestimo_quitado,
+            })
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
             todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
             todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
-    total_pendente = sum(e.valor for e in todos if not e.emprestimo_quitado)
-    total_quitado = sum(e.valor for e in todos if e.emprestimo_quitado)
+    total_pendente = (
+        sum(e.valor for e in todos if not e.emprestimo_quitado) +
+        sum(e['valor'] for e in rateios_expandidos if not e['emprestimo_quitado'])
+    )
+    total_quitado = (
+        sum(e.valor for e in todos if e.emprestimo_quitado) +
+        sum(e['valor'] for e in rateios_expandidos if e['emprestimo_quitado'])
+    )
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -569,20 +611,20 @@ def relatorio_emprestimos_pdf():
         story.append(Spacer(1, 0.3*cm))
         story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#1a3a5c')))
         story.append(Spacer(1, 0.3*cm))
-        dados = [['Data', 'Origem', 'Destino/Devedores', 'Valor Total', 'Descricao', 'Status']]
+        dados = [['Data', 'Tipo', 'Origem', 'Devedor', 'Valor', 'Descricao', 'Status']]
         for emp in todos:
             status = 'QUITADO' if emp.emprestimo_quitado else 'PENDENTE'
-            if emp.tipo == 'saida_rateio':
-                destino = ', '.join([r.unidade + ' R$' + '{:,.0f}'.format(r.valor) for r in emp.rateios])
-                valor = sum(r.valor for r in emp.rateios)
-            else:
-                destino = emp.unidade_destino or '-'
-                valor = emp.valor
-            dados.append([emp.data, emp.unidade_origem or '-', destino[:50],
-                          'R$ ' + '{:,.2f}'.format(valor), emp.descricao[:30], status])
-        dados.append(['', '', '', 'Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente), ''])
-        dados.append(['', '', '', 'Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado), ''])
-        t = Table(dados, colWidths=[2*cm, 3*cm, 5*cm, 2.5*cm, 3.5*cm, 2.5*cm])
+            dados.append([emp.data, 'Emprestimo', emp.unidade_origem or '-',
+                          emp.unidade_destino or '-', 'R$ ' + '{:,.2f}'.format(emp.valor),
+                          emp.descricao[:25], status])
+        for emp in rateios_expandidos:
+            status = 'QUITADO' if emp['emprestimo_quitado'] else 'PENDENTE'
+            dados.append([emp['data'], 'Rateio', emp['unidade_origem'] or '-',
+                          emp['unidade_destino'] or '-', 'R$ ' + '{:,.2f}'.format(emp['valor']),
+                          emp['descricao'][:25], status])
+        dados.append(['', '', '', 'Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente), '', ''])
+        dados.append(['', '', '', 'Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado), '', ''])
+        t = Table(dados, colWidths=[1.8*cm, 2*cm, 3*cm, 3*cm, 2.5*cm, 3.2*cm, 2*cm])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
