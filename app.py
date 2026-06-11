@@ -133,7 +133,7 @@ class MovimentacaoCofre(db.Model):
     unidade_destino = db.Column(db.String(120))
     emprestimo_quitado = db.Column(db.Boolean, default=False)
     emprestimo_quitado_at = db.Column(db.DateTime)
-    grupo_id = db.Column(db.String(50))  # agrupa emprestimos do mesmo rateio
+    grupo_id = db.Column(db.String(50))
     criado_por = db.relationship('User', foreign_keys=[created_by])
     rateios = db.relationship('RateioCofre', backref='movimentacao', lazy=True, cascade='all, delete-orphan')
 
@@ -175,7 +175,6 @@ def calcular_saldos():
             if mov.unidade in saldos:
                 saldos[mov.unidade] -= mov.valor
         elif mov.tipo == 'saida_rateio':
-            # Debita total da origem — rateios sao emprestimos individuais
             if mov.unidade_origem and mov.unidade_origem in saldos:
                 total_rateio = sum(r.valor for r in mov.rateios)
                 saldos[mov.unidade_origem] -= total_rateio
@@ -489,54 +488,49 @@ def extrato_unidade(unidade):
 def relatorio_emprestimos():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    # Busca emprestimos simples
     emprestimos_simples = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
-    # Busca rateios e expande em registros por devedor
     rateios = MovimentacaoCofre.query.filter_by(tipo='saida_rateio').order_by(MovimentacaoCofre.created_at.desc()).all()
-    todos = list(emprestimos_simples)
-    # Para rateios, cria entrada virtual por devedor
     rateios_expandidos = []
     for r in rateios:
         for rateio in r.rateios:
             rateios_expandidos.append({
                 'id': r.id,
                 'data': r.data,
-                'tipo': 'saida_rateio',
                 'unidade_origem': r.unidade_origem,
                 'unidade_destino': rateio.unidade,
                 'valor': rateio.valor,
                 'descricao': r.descricao,
                 'emprestimo_quitado': r.emprestimo_quitado,
                 'emprestimo_quitado_at': r.emprestimo_quitado_at,
-                'grupo_id': r.id,
-                'criado_por': r.criado_por,
             })
+    todos_para_filtro = list(emprestimos_simples)
+    todos_rateios_filtro = list(rateios_expandidos)
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
-            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
-            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
+            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
-            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
-            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
+            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
     total_pendente = (
-        sum(e.valor for e in todos if not e.emprestimo_quitado) +
-        sum(e['valor'] for e in rateios_expandidos if not e['emprestimo_quitado'])
+        sum(e.valor for e in todos_para_filtro if not e.emprestimo_quitado) +
+        sum(e['valor'] for e in todos_rateios_filtro if not e['emprestimo_quitado'])
     )
     total_quitado = (
-        sum(e.valor for e in todos if e.emprestimo_quitado) +
-        sum(e['valor'] for e in rateios_expandidos if e['emprestimo_quitado'])
+        sum(e.valor for e in todos_para_filtro if e.emprestimo_quitado) +
+        sum(e['valor'] for e in todos_rateios_filtro if e['emprestimo_quitado'])
     )
     total_geral = total_pendente + total_quitado
     return render_template('relatorio_emprestimos.html',
-                           emprestimos=todos,
-                           rateios_expandidos=rateios_expandidos,
+                           emprestimos=todos_para_filtro,
+                           rateios_expandidos=todos_rateios_filtro,
                            data_ini=data_ini, data_fim=data_fim,
                            total_pendente=total_pendente,
                            total_quitado=total_quitado,
@@ -550,7 +544,6 @@ def relatorio_emprestimos_pdf():
     data_fim = request.args.get('data_fim', '')
     emprestimos_simples = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
     rateios = MovimentacaoCofre.query.filter_by(tipo='saida_rateio').order_by(MovimentacaoCofre.created_at.desc()).all()
-    todos = list(emprestimos_simples)
     rateios_expandidos = []
     for r in rateios:
         for rateio in r.rateios:
@@ -559,27 +552,29 @@ def relatorio_emprestimos_pdf():
                 'unidade_destino': rateio.unidade, 'valor': rateio.valor,
                 'descricao': r.descricao, 'emprestimo_quitado': r.emprestimo_quitado,
             })
+    todos_para_filtro = list(emprestimos_simples)
+    todos_rateios_filtro = list(rateios_expandidos)
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
-            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
-            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
+            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
-            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
-            rateios_expandidos = [e for e in rateios_expandidos if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
+            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
     total_pendente = (
-        sum(e.valor for e in todos if not e.emprestimo_quitado) +
-        sum(e['valor'] for e in rateios_expandidos if not e['emprestimo_quitado'])
+        sum(e.valor for e in todos_para_filtro if not e.emprestimo_quitado) +
+        sum(e['valor'] for e in todos_rateios_filtro if not e['emprestimo_quitado'])
     )
     total_quitado = (
-        sum(e.valor for e in todos if e.emprestimo_quitado) +
-        sum(e['valor'] for e in rateios_expandidos if e['emprestimo_quitado'])
+        sum(e.valor for e in todos_para_filtro if e.emprestimo_quitado) +
+        sum(e['valor'] for e in todos_rateios_filtro if e['emprestimo_quitado'])
     )
     try:
         from reportlab.lib.pagesizes import A4
@@ -612,12 +607,12 @@ def relatorio_emprestimos_pdf():
         story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#1a3a5c')))
         story.append(Spacer(1, 0.3*cm))
         dados = [['Data', 'Tipo', 'Origem', 'Devedor', 'Valor', 'Descricao', 'Status']]
-        for emp in todos:
+        for emp in todos_para_filtro:
             status = 'QUITADO' if emp.emprestimo_quitado else 'PENDENTE'
             dados.append([emp.data, 'Emprestimo', emp.unidade_origem or '-',
                           emp.unidade_destino or '-', 'R$ ' + '{:,.2f}'.format(emp.valor),
                           emp.descricao[:25], status])
-        for emp in rateios_expandidos:
+        for emp in todos_rateios_filtro:
             status = 'QUITADO' if emp['emprestimo_quitado'] else 'PENDENTE'
             dados.append([emp['data'], 'Rateio', emp['unidade_origem'] or '-',
                           emp['unidade_destino'] or '-', 'R$ ' + '{:,.2f}'.format(emp['valor']),
@@ -703,6 +698,24 @@ def excluir_movimentacao(mov_id):
     return jsonify({'success': True})
 
 
+@app.route('/diagnostico/movs')
+@login_required
+def diagnostico_movs():
+    movs = MovimentacaoCofre.query.all()
+    resultado = []
+    for m in movs:
+        resultado.append({
+            'id': m.id,
+            'tipo': m.tipo,
+            'descricao': m.descricao,
+            'valor': m.valor,
+            'origem': m.unidade_origem,
+            'destino': m.unidade_destino,
+            'rateios': len(m.rateios),
+        })
+    return jsonify(resultado)
+
+
 @app.route('/admin/usuarios')
 @login_required
 def admin_usuarios():
@@ -770,22 +783,7 @@ def minha_senha():
         return jsonify({'success': True})
     return render_template('minha_senha.html')
 
-@app.route('/diagnostico/movs')
-@login_required
-def diagnostico_movs():
-    movs = MovimentacaoCofre.query.all()
-    resultado = []
-    for m in movs:
-        resultado.append({
-            'id': m.id,
-            'tipo': m.tipo,
-            'descricao': m.descricao,
-            'valor': m.valor,
-            'origem': m.unidade_origem,
-            'destino': m.unidade_destino,
-            'rateios': len(m.rateios),
-        })
-    return jsonify(resultado)
+
 def init_db():
     with app.app_context():
         db.create_all()
