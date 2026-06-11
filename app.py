@@ -141,7 +141,7 @@ class MovimentacaoCofre(db.Model):
             'saldo_inicial': 'Saldo Inicial',
             'entrada_manual': 'Entrada Manual',
             'saida': 'Saida',
-            'saida_rateio': 'Saida com Rateio',
+            'saida_rateio': 'Emprestimo com Rateio',
             'emprestimo': 'Emprestimo',
             'devolucao': 'Devolucao',
         }
@@ -174,14 +174,14 @@ def calcular_saldos():
             if mov.unidade in saldos:
                 saldos[mov.unidade] -= mov.valor
         elif mov.tipo == 'saida_rateio':
-            # Debita de cada unidade do rateio
-            for rateio in mov.rateios:
-                if rateio.unidade in saldos:
-                    saldos[rateio.unidade] -= rateio.valor
-            # Debita o total da unidade de origem (de onde saiu o dinheiro fisico)
+            # Debita o total apenas da unidade de origem (quem emprestou o dinheiro fisico)
+            # Os rateios sao informativos — mostram quem deve quanto
             if mov.unidade_origem and mov.unidade_origem in saldos:
                 total_rateio = sum(r.valor for r in mov.rateios)
                 saldos[mov.unidade_origem] -= total_rateio
+            # Aparece como emprestimo pendente para controle
+            if not mov.emprestimo_quitado:
+                emprestimos_pendentes.append(mov)
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] -= mov.valor
@@ -306,7 +306,7 @@ def upload():
                 uso_credito=data.get('uso_credito', 0),
                 deposito_bancario=data.get('deposito_bancario', 0),
                 cartao=data.get('cartao', 0),
-                cortesia=data.get('cartao', 0),
+                cortesia=data.get('cortesia', 0),
                 cheque=data.get('cheque', 0),
                 cofre_opcional=data.get('cofre_opcional', False),
                 tem_vendas_online=tem_vendas_online,
@@ -453,12 +453,16 @@ def extrato_unidade(unidade):
         elif mov.tipo == 'saida' and mov.unidade == unidade:
             movs_unidade.append({'data': mov.data, 'tipo': 'Saida', 'descricao': mov.descricao, 'entrada': 0, 'saida': mov.valor})
         elif mov.tipo == 'saida_rateio':
-            for r in mov.rateios:
-                if r.unidade == unidade:
-                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao + (' (origem: ' + mov.unidade_origem + ')' if mov.unidade_origem else ''), 'entrada': 0, 'saida': r.valor})
             if mov.unidade_origem == unidade:
                 total_rateio = sum(r.valor for r in mov.rateios)
-                movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio Origem', 'descricao': 'Dinheiro fisico saiu daqui: ' + mov.descricao, 'entrada': 0, 'saida': total_rateio})
+                devedores = ', '.join([r.unidade + ' R$' + '{:,.0f}'.format(r.valor) for r in mov.rateios])
+                movs_unidade.append({
+                    'data': mov.data,
+                    'tipo': 'Emprestimo Rateio',
+                    'descricao': mov.descricao + ' | Devedores: ' + devedores,
+                    'entrada': 0,
+                    'saida': total_rateio,
+                })
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem == unidade:
                 status_emp = ' (QUITADO)' if mov.emprestimo_quitado else ' (PENDENTE)'
@@ -486,24 +490,27 @@ def extrato_unidade(unidade):
 def relatorio_emprestimos():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    emprestimos = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
+    # Busca emprestimos simples E emprestimos com rateio
+    todos = MovimentacaoCofre.query.filter(
+        MovimentacaoCofre.tipo.in_(['emprestimo', 'saida_rateio'])
+    ).order_by(MovimentacaoCofre.created_at.desc()).all()
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
-            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
-            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
-    total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
-    total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
+    total_pendente = sum(e.valor for e in todos if not e.emprestimo_quitado)
+    total_quitado = sum(e.valor for e in todos if e.emprestimo_quitado)
     total_geral = total_pendente + total_quitado
     return render_template('relatorio_emprestimos.html',
-                           emprestimos=emprestimos,
+                           emprestimos=todos,
                            data_ini=data_ini, data_fim=data_fim,
                            total_pendente=total_pendente,
                            total_quitado=total_quitado,
@@ -515,21 +522,23 @@ def relatorio_emprestimos():
 def relatorio_emprestimos_pdf():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    emprestimos = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
+    todos = MovimentacaoCofre.query.filter(
+        MovimentacaoCofre.tipo.in_(['emprestimo', 'saida_rateio'])
+    ).order_by(MovimentacaoCofre.created_at.desc()).all()
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
-            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
+            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
-            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
+            todos = [e for e in todos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
-    total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
-    total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
+    total_pendente = sum(e.valor for e in todos if not e.emprestimo_quitado)
+    total_quitado = sum(e.valor for e in todos if e.emprestimo_quitado)
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -560,19 +569,25 @@ def relatorio_emprestimos_pdf():
         story.append(Spacer(1, 0.3*cm))
         story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#1a3a5c')))
         story.append(Spacer(1, 0.3*cm))
-        dados = [['Data', 'Origem', 'Destino', 'Valor', 'Descricao', 'Status']]
-        for emp in emprestimos:
+        dados = [['Data', 'Origem', 'Destino/Devedores', 'Valor Total', 'Descricao', 'Status']]
+        for emp in todos:
             status = 'QUITADO' if emp.emprestimo_quitado else 'PENDENTE'
-            dados.append([emp.data, emp.unidade_origem or '-', emp.unidade_destino or '-',
-                          'R$ ' + '{:,.2f}'.format(emp.valor), emp.descricao[:40], status])
-        dados.append(['', '', '', '', 'Total Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente)])
-        dados.append(['', '', '', '', 'Total Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado)])
-        t = Table(dados, colWidths=[2.2*cm, 3.5*cm, 3.5*cm, 2.5*cm, 4.5*cm, 2.3*cm])
+            if emp.tipo == 'saida_rateio':
+                destino = ', '.join([r.unidade + ' R$' + '{:,.0f}'.format(r.valor) for r in emp.rateios])
+                valor = sum(r.valor for r in emp.rateios)
+            else:
+                destino = emp.unidade_destino or '-'
+                valor = emp.valor
+            dados.append([emp.data, emp.unidade_origem or '-', destino[:50],
+                          'R$ ' + '{:,.2f}'.format(valor), emp.descricao[:30], status])
+        dados.append(['', '', '', 'Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente), ''])
+        dados.append(['', '', '', 'Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado), ''])
+        t = Table(dados, colWidths=[2*cm, 3*cm, 5*cm, 2.5*cm, 3.5*cm, 2.5*cm])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
             ('GRID', (0, 0), (-1, -3), 0.5, colors.lightgrey),
             ('ROWBACKGROUNDS', (0, 1), (-1, -3), [colors.white, colors.HexColor('#f8f9fa')]),
             ('PADDING', (0, 0), (-1, -1), 5),
@@ -581,7 +596,6 @@ def relatorio_emprestimos_pdf():
         story.append(t)
         story.append(Spacer(1, 1*cm))
         story.append(HRFlowable(width='100%', thickness=1, color=colors.lightgrey))
-        story.append(Spacer(1, 0.2*cm))
         story.append(Paragraph(
             'Relatorio gerado em ' + datetime.now().strftime('%d/%m/%Y as %H:%M') + ' | Sistema OK INN Leve Hoteis',
             footer_style))
@@ -610,9 +624,11 @@ def nova_movimentacao():
         mov.unidade = data.get('unidade')
         mov.valor = float(data.get('valor', 0))
     elif tipo == 'saida_rateio':
-        mov.valor = float(data.get('valor_total', 0))
         mov.unidade_origem = data.get('unidade_origem', '')
-        for r in data.get('rateios', []):
+        rateios = data.get('rateios', [])
+        total = sum(float(r.get('valor', 0)) for r in rateios if float(r.get('valor', 0)) > 0)
+        mov.valor = total
+        for r in rateios:
             if float(r.get('valor', 0)) > 0:
                 mov.rateios.append(RateioCofre(unidade=r['unidade'], valor=float(r['valor'])))
     elif tipo == 'emprestimo':
