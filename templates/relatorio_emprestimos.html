@@ -32,9 +32,9 @@
 
 <div class="row g-3 mb-4">
   <div class="col-md-4">
-    <div class="card text-center p-3" style="border-left: 4px solid #ffc107;">
-      <div class="text-muted" style="font-size:0.8rem">Total Emprestimos</div>
-      <div style="font-size:1.6rem; font-weight:800; color:#1a3a5c">{{ emprestimos|length }}</div>
+    <div class="card text-center p-3" style="border-left: 4px solid #1a3a5c;">
+      <div class="text-muted" style="font-size:0.8rem">Total Registros</div>
+      <div style="font-size:1.6rem; font-weight:800; color:#1a3a5c">{{ emprestimos|length + rateios_expandidos|length }}</div>
     </div>
   </div>
   <div class="col-md-4">
@@ -51,9 +51,11 @@
   </div>
 </div>
 
-<div class="card">
-  <div class="card-header py-3">
-    <h6 class="mb-0"><i class="fas fa-list me-2"></i>Emprestimos</h6>
+{% if emprestimos %}
+<div class="card mb-4">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="fas fa-handshake me-2"></i>Emprestimos Simples</h6>
+    <span class="badge bg-primary">{{ emprestimos|length }} registros</span>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
@@ -61,8 +63,8 @@
         <thead style="background:#f8f9fa;">
           <tr>
             <th class="px-3 py-2" style="font-size:0.78rem">Data</th>
-            <th style="font-size:0.78rem">Origem (Emprestou)</th>
-            <th style="font-size:0.78rem">Destino (Devedor)</th>
+            <th style="font-size:0.78rem">Origem</th>
+            <th style="font-size:0.78rem">Devedor</th>
             <th style="font-size:0.78rem">Valor</th>
             <th style="font-size:0.78rem">Descricao</th>
             <th style="font-size:0.78rem">Status</th>
@@ -71,7 +73,7 @@
         </thead>
         <tbody>
           {% for emp in emprestimos %}
-          <tr>
+          <tr style="border-left: 4px solid {{ '#198754' if emp.emprestimo_quitado else '#ffc107' }}">
             <td class="px-3 py-2" style="font-size:0.85rem">{{ emp.data }}</td>
             <td style="font-size:0.85rem; font-weight:600; color:#0d6efd">{{ emp.unidade_origem }}</td>
             <td style="font-size:0.85rem">{{ emp.unidade_destino }}</td>
@@ -88,11 +90,53 @@
               {{ emp.emprestimo_quitado_at.strftime('%d/%m/%Y') if emp.emprestimo_quitado_at else '-' }}
             </td>
           </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card mb-4">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="fas fa-list me-2"></i>Emprestimos com Rateio (por devedor)</h6>
+    <span class="badge bg-warning text-dark">{{ rateios_expandidos|length }} registros</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead style="background:#f8f9fa;">
+          <tr>
+            <th class="px-3 py-2" style="font-size:0.78rem">Data</th>
+            <th style="font-size:0.78rem">Origem (Emprestou)</th>
+            <th style="font-size:0.78rem">Devedor</th>
+            <th style="font-size:0.78rem">Valor</th>
+            <th style="font-size:0.78rem">Descricao</th>
+            <th style="font-size:0.78rem">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in rateios_expandidos %}
+          <tr style="border-left: 4px solid {{ '#198754' if emp.emprestimo_quitado else '#fd7e14' }}">
+            <td class="px-3 py-2" style="font-size:0.85rem">{{ emp.data }}</td>
+            <td style="font-size:0.85rem; font-weight:600; color:#0d6efd">{{ emp.unidade_origem }}</td>
+            <td style="font-size:0.85rem">{{ emp.unidade_destino }}</td>
+            <td style="font-size:0.85rem; font-weight:700">R$ {{ '{:,.2f}'.format(emp.valor) }}</td>
+            <td style="font-size:0.85rem">{{ emp.descricao }}</td>
+            <td>
+              {% if emp.emprestimo_quitado %}
+              <span class="badge bg-success">Quitado</span>
+              {% else %}
+              <span class="badge bg-warning text-dark">Pendente</span>
+              {% endif %}
+            </td>
+          </tr>
           {% else %}
           <tr>
-            <td colspan="7" class="text-center text-muted py-5">
-              <i class="fas fa-handshake fa-3x mb-3 d-block opacity-25"></i>
-              Nenhum emprestimo encontrado no periodo.
+            <td colspan="6" class="text-center text-muted py-4">
+              <i class="fas fa-handshake fa-2x mb-2 d-block opacity-25"></i>
+              Nenhum rateio encontrado.
             </td>
           </tr>
           {% endfor %}
@@ -102,9 +146,12 @@
   </div>
 </div>
 
-<div class="mt-3">
+<div class="mt-3 d-flex justify-content-between align-items-center">
   <a href="{{ url_for('cofre') }}" class="btn btn-outline-secondary">
     <i class="fas fa-arrow-left me-1"></i>Voltar ao Cofre
   </a>
+  <span class="fw-bold" style="font-size:1.1rem">
+    Total Geral: <span style="color:#1a3a5c">R$ {{ '{:,.2f}'.format(total_geral) }}</span>
+  </span>
 </div>
 {% endblock %}
