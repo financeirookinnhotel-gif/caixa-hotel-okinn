@@ -80,6 +80,9 @@
     </a>
     {% endif %}
     {% if current_user.role == 'admin' %}
+    <a href="{{ url_for('exportar_backup') }}" class="nav-link {% if request.endpoint == 'exportar_backup' %}active{% endif %}">
+      <i class="fas fa-download"></i> Exportar Backup
+    </a>
     <a href="{{ url_for('admin_usuarios') }}" class="nav-link {% if request.endpoint == 'admin_usuarios' %}active{% endif %}">
       <i class="fas fa-users"></i> Usuarios
     </a>
