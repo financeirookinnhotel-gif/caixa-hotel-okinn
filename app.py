@@ -698,22 +698,91 @@ def excluir_movimentacao(mov_id):
     return jsonify({'success': True})
 
 
-@app.route('/diagnostico/movs')
+@app.route('/admin/exportar')
 @login_required
-def diagnostico_movs():
-    movs = MovimentacaoCofre.query.all()
-    resultado = []
-    for m in movs:
-        resultado.append({
-            'id': m.id,
-            'tipo': m.tipo,
-            'descricao': m.descricao,
-            'valor': m.valor,
-            'origem': m.unidade_origem,
-            'destino': m.unidade_destino,
-            'rateios': len(m.rateios),
-        })
-    return jsonify(resultado)
+def exportar_backup():
+    if current_user.role != 'admin':
+        flash('Acesso restrito.', 'danger')
+        return redirect(url_for('dashboard'))
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill
+        from io import BytesIO
+        wb = openpyxl.Workbook()
+
+        # Aba 1 - Fechamentos
+        ws1 = wb.active
+        ws1.title = 'Fechamentos'
+        cab1 = ['ID', 'Unidade', 'Data Fechamento', 'Quem Fechou', 'Movimento',
+                'Status', 'Dinheiro Saida', 'Dinheiro Encerramento', 'Cartao',
+                'Faturado', 'Uso Credito', 'Deposito Bancario', 'Cortesia',
+                'Cheque', 'Vendas Online', 'Financeiro Obs', 'Diretor Obs',
+                'Cofre Confirmado', 'Criado em']
+        ws1.append(cab1)
+        for cell in ws1[1]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
+        fcs = FechamentoCaixa.query.order_by(FechamentoCaixa.created_at.asc()).all()
+        for fc in fcs:
+            ws1.append([
+                fc.id, fc.unidade, fc.data_fechamento, fc.quem_fechou, fc.movimento_num,
+                fc.status_label(), fc.dinheiro_saida, fc.dinheiro_encerramento, fc.cartao,
+                fc.faturado, fc.uso_credito, fc.deposito_bancario, fc.cortesia,
+                fc.cheque, fc.vendas_online, fc.financeiro_obs or '', fc.diretor_obs or '',
+                'Sim' if fc.cofre_confirmado else 'Nao',
+                fc.created_at.strftime('%d/%m/%Y %H:%M') if fc.created_at else '',
+            ])
+
+        # Aba 2 - Movimentacoes Cofre
+        ws2 = wb.create_sheet('Cofre Movimentacoes')
+        cab2 = ['ID', 'Tipo', 'Descricao', 'Data', 'Unidade', 'Origem',
+                'Destino', 'Valor', 'Quitado', 'Criado em']
+        ws2.append(cab2)
+        for cell in ws2[1]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
+        movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.asc()).all()
+        for mov in movs:
+            ws2.append([
+                mov.id, mov.tipo_label(), mov.descricao, mov.data,
+                mov.unidade or '', mov.unidade_origem or '', mov.unidade_destino or '',
+                mov.valor, 'Sim' if mov.emprestimo_quitado else 'Nao',
+                mov.created_at.strftime('%d/%m/%Y %H:%M') if mov.created_at else '',
+            ])
+
+        # Aba 3 - Rateios
+        ws3 = wb.create_sheet('Cofre Rateios')
+        cab3 = ['ID Movimentacao', 'Unidade Devedora', 'Valor']
+        ws3.append(cab3)
+        for cell in ws3[1]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
+        rateios = RateioCofre.query.all()
+        for r in rateios:
+            ws3.append([r.movimentacao_id, r.unidade, r.valor])
+
+        # Aba 4 - Saldos Atuais
+        ws4 = wb.create_sheet('Saldos Atuais')
+        cab4 = ['Unidade', 'Saldo Atual']
+        ws4.append(cab4)
+        for cell in ws4[1]:
+            cell.font = Font(bold=True, color='FFFFFF')
+            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
+        saldos, _ = calcular_saldos()
+        for unidade, saldo in saldos.items():
+            ws4.append([unidade, saldo])
+
+        # Salva em memoria e envia
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        nome = 'backup_okinn_' + datetime.now().strftime('%Y%m%d_%H%M') + '.xlsx'
+        return send_file(output, as_attachment=True,
+                         download_name=nome,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    except Exception as e:
+        flash('Erro ao gerar backup: ' + str(e), 'danger')
+        return redirect(url_for('dashboard'))
 
 
 @app.route('/admin/usuarios')
