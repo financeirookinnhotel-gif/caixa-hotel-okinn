@@ -10,6 +10,7 @@
 .badge-aguardando_cofre { background: #fd7e14; color: white; }
 .badge-concluido { background: #198754; color: white; }
 .filter-bar { background: white; border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1.2rem; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.btn-toggle-concluidos.ativo { background: #1a3a5c; color: white; border-color: #1a3a5c; }
 </style>
 {% endblock %}
 
@@ -42,18 +43,22 @@
     <label class="form-label fw-semibold mb-1" style="font-size:0.82rem">Data Fim</label>
     <input type="date" id="filtroDataFim" class="form-control form-control-sm">
   </div>
-  <div>
+  <div class="d-flex gap-1 align-items-end">
     <button onclick="filtrar()" class="btn btn-primary btn-sm">
       <i class="fas fa-filter me-1"></i>Filtrar
     </button>
-    <button onclick="limparFiltros()" class="btn btn-outline-secondary btn-sm ms-1">
+    <button onclick="limparFiltros()" class="btn btn-outline-secondary btn-sm">
       <i class="fas fa-times me-1"></i>Limpar
     </button>
+    <button id="btnOcultarConcluidos" onclick="toggleConcluidos()"
+            class="btn btn-outline-secondary btn-sm btn-toggle-concluidos" title="Ocultar/Exibir concluidos">
+      <i class="fas fa-eye-slash me-1"></i>Ocultar Concluidos
+    </button>
   </div>
-  <div class="ms-auto">
+  <div class="ms-auto d-flex align-items-center gap-2">
     <span id="countLabel" class="text-muted" style="font-size:0.85rem"></span>
     {% if current_user.role in ['financeiro', 'admin'] %}
-    <a href="{{ url_for('upload') }}" class="btn btn-sm btn-primary ms-2">
+    <a href="{{ url_for('upload') }}" class="btn btn-sm btn-primary">
       <i class="fas fa-plus me-1"></i>Novo Fechamento
     </a>
     {% endif %}
@@ -134,44 +139,69 @@
 
 {% block extra_js %}
 <script>
+var ocultandoConcluidos = false;
+
 function parseDataBR(str) {
   if (!str) return null;
-  var p = str.split('/');
-  if (p.length === 3) {
-    var ano = p[2].length === 2 ? '20' + p[2] : p[2];
-    return new Date(ano + '-' + p[1] + '-' + p[0]);
-  }
-  return null;
+  var p = str.trim().split('/');
+  if (p.length !== 3) return null;
+  var dia = p[0], mes = p[1], ano = p[2];
+  if (ano.length === 2) ano = '20' + ano;
+  return new Date(parseInt(ano), parseInt(mes) - 1, parseInt(dia));
 }
+
+function parseDataInput(str) {
+  if (!str) return null;
+  var p = str.split('-');
+  return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
+}
+
 function filtrar() {
-  var unidade = document.getElementById('filtroUnidade').value;
-  var status = document.getElementById('filtroStatus').value;
-  var dataInicio = document.getElementById('filtroDataInicio').value;
-  var dataFim = document.getElementById('filtroDataFim').value;
-  var rows = document.querySelectorAll('#tbodyFechamentos tr[data-unidade]');
-  var count = 0;
+  var unidade  = document.getElementById('filtroUnidade').value;
+  var status   = document.getElementById('filtroStatus').value;
+  var dtIni    = parseDataInput(document.getElementById('filtroDataInicio').value);
+  var dtFim    = parseDataInput(document.getElementById('filtroDataFim').value);
+  var rows     = document.querySelectorAll('#tbodyFechamentos tr[data-unidade]');
+  var count    = 0;
+
   rows.forEach(function(tr) {
-    var d = parseDataBR(tr.dataset.data);
+    var d    = parseDataBR(tr.dataset.data);
     var show = true;
+
     if (unidade && tr.dataset.unidade !== unidade) show = false;
-    if (status && tr.dataset.status !== status) show = false;
-    if (dataInicio && d && d < new Date(dataInicio)) show = false;
-    if (dataFim && d && d > new Date(dataFim + 'T23:59:59')) show = false;
+    if (status  && tr.dataset.status  !== status)  show = false;
+    if (dtIni   && d && d < dtIni) show = false;
+    if (dtFim   && d && d > dtFim) show = false;
+    if (ocultandoConcluidos && tr.dataset.status === 'concluido') show = false;
+
     tr.style.display = show ? '' : 'none';
     if (show) count++;
   });
+
   document.getElementById('countLabel').textContent = count + ' resultado(s)';
 }
+
 function limparFiltros() {
-  document.getElementById('filtroUnidade').value = '';
-  document.getElementById('filtroStatus').value = '';
+  document.getElementById('filtroUnidade').value    = '';
+  document.getElementById('filtroStatus').value     = '';
   document.getElementById('filtroDataInicio').value = '';
-  document.getElementById('filtroDataFim').value = '';
-  document.querySelectorAll('#tbodyFechamentos tr[data-unidade]').forEach(function(tr) {
-    tr.style.display = '';
-  });
-  document.getElementById('countLabel').textContent = '';
+  document.getElementById('filtroDataFim').value    = '';
+  filtrar();
 }
+
+function toggleConcluidos() {
+  ocultandoConcluidos = !ocultandoConcluidos;
+  var btn = document.getElementById('btnOcultarConcluidos');
+  if (ocultandoConcluidos) {
+    btn.classList.add('ativo');
+    btn.innerHTML = '<i class="fas fa-eye me-1"></i>Mostrar Concluidos';
+  } else {
+    btn.classList.remove('ativo');
+    btn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Ocultar Concluidos';
+  }
+  filtrar();
+}
+
 function excluirFechamento(id) {
   if (!confirm('Excluir este fechamento? Esta acao nao pode ser desfeita.')) return;
   fetch('/fechamento/' + id + '/excluir', { method: 'POST' })
@@ -181,7 +211,10 @@ function excluirFechamento(id) {
       else alert(data.error || 'Erro ao excluir');
     });
 }
-var total = document.querySelectorAll('#tbodyFechamentos tr[data-unidade]').length;
-if (total > 0) document.getElementById('countLabel').textContent = total + ' fechamento(s)';
+
+(function() {
+  var total = document.querySelectorAll('#tbodyFechamentos tr[data-unidade]').length;
+  if (total > 0) document.getElementById('countLabel').textContent = total + ' fechamento(s)';
+})();
 </script>
 {% endblock %}
