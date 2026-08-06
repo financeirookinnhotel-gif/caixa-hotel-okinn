@@ -10,4 +10,4 @@ services:
       - key: DATABASE_URL
         value: sqlite:///caixa_hotel.db
       - key: PYTHON_VERSION
-        value: 3.11.0
+        value: 3.11.9
