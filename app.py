@@ -133,7 +133,6 @@ class MovimentacaoCofre(db.Model):
     unidade_destino = db.Column(db.String(120))
     emprestimo_quitado = db.Column(db.Boolean, default=False)
     emprestimo_quitado_at = db.Column(db.DateTime)
-    grupo_id = db.Column(db.String(50))
     criado_por = db.relationship('User', foreign_keys=[created_by])
     rateios = db.relationship('RateioCofre', backref='movimentacao', lazy=True, cascade='all, delete-orphan')
 
@@ -142,7 +141,7 @@ class MovimentacaoCofre(db.Model):
             'saldo_inicial': 'Saldo Inicial',
             'entrada_manual': 'Entrada Manual',
             'saida': 'Saida',
-            'saida_rateio': 'Emprestimo Multiplo',
+            'saida_rateio': 'Saida com Rateio',
             'emprestimo': 'Emprestimo',
             'devolucao': 'Devolucao',
         }
@@ -175,11 +174,9 @@ def calcular_saldos():
             if mov.unidade in saldos:
                 saldos[mov.unidade] -= mov.valor
         elif mov.tipo == 'saida_rateio':
-            if mov.unidade_origem and mov.unidade_origem in saldos:
-                total_rateio = sum(r.valor for r in mov.rateios)
-                saldos[mov.unidade_origem] -= total_rateio
-            if not mov.emprestimo_quitado:
-                emprestimos_pendentes.append(mov)
+            for rateio in mov.rateios:
+                if rateio.unidade in saldos:
+                    saldos[rateio.unidade] -= rateio.valor
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem in saldos:
                 saldos[mov.unidade_origem] -= mov.valor
@@ -187,7 +184,9 @@ def calcular_saldos():
                 emprestimos_pendentes.append(mov)
         elif mov.tipo == 'devolucao':
             if mov.unidade_origem in saldos:
-                saldos[mov.unidade_origem] += mov.valor
+                saldos[mov.unidade_origem] += mov.valor  # credor recebe de volta
+            if mov.unidade_destino in saldos:
+                saldos[mov.unidade_destino] -= mov.valor  # devedor paga
     return saldos, emprestimos_pendentes
 
 
@@ -451,16 +450,13 @@ def extrato_unidade(unidade):
         elif mov.tipo == 'saida' and mov.unidade == unidade:
             movs_unidade.append({'data': mov.data, 'tipo': 'Saida', 'descricao': mov.descricao, 'entrada': 0, 'saida': mov.valor})
         elif mov.tipo == 'saida_rateio':
+            for r in mov.rateios:
+                if r.unidade == unidade:
+                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio', 'descricao': mov.descricao + (' (origem: ' + mov.unidade_origem + ')' if mov.unidade_origem else ''), 'entrada': 0, 'saida': r.valor})
             if mov.unidade_origem == unidade:
-                total_rateio = sum(r.valor for r in mov.rateios)
-                devedores = ' | '.join([r.unidade + ': R$' + '{:,.0f}'.format(r.valor) for r in mov.rateios])
-                movs_unidade.append({
-                    'data': mov.data,
-                    'tipo': 'Emprestimo Multiplo',
-                    'descricao': mov.descricao + ' — ' + devedores,
-                    'entrada': 0,
-                    'saida': total_rateio,
-                })
+                total_rateio = sum(r.valor for r in mov.rateios if r.unidade != unidade)
+                if total_rateio > 0:
+                    movs_unidade.append({'data': mov.data, 'tipo': 'Saida Rateio (Origem)', 'descricao': 'Dinheiro fisico saiu daqui: ' + mov.descricao, 'entrada': 0, 'saida': 0})
         elif mov.tipo == 'emprestimo':
             if mov.unidade_origem == unidade:
                 status_emp = ' (QUITADO)' if mov.emprestimo_quitado else ' (PENDENTE)'
@@ -474,6 +470,8 @@ def extrato_unidade(unidade):
         elif mov.tipo == 'devolucao':
             if mov.unidade_origem == unidade:
                 movs_unidade.append({'data': mov.data, 'tipo': 'Devolucao Recebida', 'descricao': mov.descricao, 'entrada': mov.valor, 'saida': 0})
+            if mov.unidade_destino == unidade:
+                movs_unidade.append({'data': mov.data, 'tipo': 'Devolucao Paga', 'descricao': mov.descricao, 'entrada': 0, 'saida': mov.valor})
     saldo_acumulado = 0.0
     for m in movs_unidade:
         saldo_acumulado += m['entrada'] - m['saida']
@@ -488,53 +486,26 @@ def extrato_unidade(unidade):
 def relatorio_emprestimos():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    emprestimos_simples = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
-    rateios = MovimentacaoCofre.query.filter_by(tipo='saida_rateio').order_by(MovimentacaoCofre.created_at.desc()).all()
-    rateios_expandidos = []
-    for r in rateios:
-        for rateio in r.rateios:
-            rateios_expandidos.append({
-                'id': r.id,
-                'data': r.data,
-                'unidade_origem': r.unidade_origem,
-                'unidade_destino': rateio.unidade,
-                'valor': rateio.valor,
-                'descricao': r.descricao,
-                'emprestimo_quitado': r.emprestimo_quitado,
-                'emprestimo_quitado_at': r.emprestimo_quitado_at,
-            })
-    todos_para_filtro = list(emprestimos_simples)
-    todos_rateios_filtro = list(rateios_expandidos)
+    emprestimos = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
-            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
-            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
-            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
-            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
-    total_pendente = (
-        sum(e.valor for e in todos_para_filtro if not e.emprestimo_quitado) +
-        sum(e['valor'] for e in todos_rateios_filtro if not e['emprestimo_quitado'])
-    )
-    total_quitado = (
-        sum(e.valor for e in todos_para_filtro if e.emprestimo_quitado) +
-        sum(e['valor'] for e in todos_rateios_filtro if e['emprestimo_quitado'])
-    )
-    total_geral = total_pendente + total_quitado
+    total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
+    total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
     return render_template('relatorio_emprestimos.html',
-                           emprestimos=todos_para_filtro,
-                           rateios_expandidos=todos_rateios_filtro,
+                           emprestimos=emprestimos,
                            data_ini=data_ini, data_fim=data_fim,
                            total_pendente=total_pendente,
-                           total_quitado=total_quitado,
-                           total_geral=total_geral)
+                           total_quitado=total_quitado)
 
 
 @app.route('/cofre/emprestimos/pdf')
@@ -542,40 +513,21 @@ def relatorio_emprestimos():
 def relatorio_emprestimos_pdf():
     data_ini = request.args.get('data_ini', '')
     data_fim = request.args.get('data_fim', '')
-    emprestimos_simples = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
-    rateios = MovimentacaoCofre.query.filter_by(tipo='saida_rateio').order_by(MovimentacaoCofre.created_at.desc()).all()
-    rateios_expandidos = []
-    for r in rateios:
-        for rateio in r.rateios:
-            rateios_expandidos.append({
-                'data': r.data, 'unidade_origem': r.unidade_origem,
-                'unidade_destino': rateio.unidade, 'valor': rateio.valor,
-                'descricao': r.descricao, 'emprestimo_quitado': r.emprestimo_quitado,
-            })
-    todos_para_filtro = list(emprestimos_simples)
-    todos_rateios_filtro = list(rateios_expandidos)
+    emprestimos = MovimentacaoCofre.query.filter_by(tipo='emprestimo').order_by(MovimentacaoCofre.created_at.desc()).all()
     if data_ini:
         try:
             dt_ini = datetime.strptime(data_ini, '%Y-%m-%d')
-            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
-            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') >= dt_ini]
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') >= dt_ini]
         except Exception:
             pass
     if data_fim:
         try:
             dt_fim = datetime.strptime(data_fim, '%Y-%m-%d')
-            todos_para_filtro = [e for e in todos_para_filtro if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
-            todos_rateios_filtro = [e for e in todos_rateios_filtro if datetime.strptime(e['data'], '%d/%m/%Y') <= dt_fim]
+            emprestimos = [e for e in emprestimos if datetime.strptime(e.data, '%d/%m/%Y') <= dt_fim]
         except Exception:
             pass
-    total_pendente = (
-        sum(e.valor for e in todos_para_filtro if not e.emprestimo_quitado) +
-        sum(e['valor'] for e in todos_rateios_filtro if not e['emprestimo_quitado'])
-    )
-    total_quitado = (
-        sum(e.valor for e in todos_para_filtro if e.emprestimo_quitado) +
-        sum(e['valor'] for e in todos_rateios_filtro if e['emprestimo_quitado'])
-    )
+    total_pendente = sum(e.valor for e in emprestimos if not e.emprestimo_quitado)
+    total_quitado = sum(e.valor for e in emprestimos if e.emprestimo_quitado)
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib import colors
@@ -606,25 +558,19 @@ def relatorio_emprestimos_pdf():
         story.append(Spacer(1, 0.3*cm))
         story.append(HRFlowable(width='100%', thickness=2, color=colors.HexColor('#1a3a5c')))
         story.append(Spacer(1, 0.3*cm))
-        dados = [['Data', 'Tipo', 'Origem', 'Devedor', 'Valor', 'Descricao', 'Status']]
-        for emp in todos_para_filtro:
+        dados = [['Data', 'Origem', 'Destino', 'Valor', 'Descricao', 'Status']]
+        for emp in emprestimos:
             status = 'QUITADO' if emp.emprestimo_quitado else 'PENDENTE'
-            dados.append([emp.data, 'Emprestimo', emp.unidade_origem or '-',
-                          emp.unidade_destino or '-', 'R$ ' + '{:,.2f}'.format(emp.valor),
-                          emp.descricao[:25], status])
-        for emp in todos_rateios_filtro:
-            status = 'QUITADO' if emp['emprestimo_quitado'] else 'PENDENTE'
-            dados.append([emp['data'], 'Rateio', emp['unidade_origem'] or '-',
-                          emp['unidade_destino'] or '-', 'R$ ' + '{:,.2f}'.format(emp['valor']),
-                          emp['descricao'][:25], status])
-        dados.append(['', '', '', 'Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente), '', ''])
-        dados.append(['', '', '', 'Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado), '', ''])
-        t = Table(dados, colWidths=[1.8*cm, 2*cm, 3*cm, 3*cm, 2.5*cm, 3.2*cm, 2*cm])
+            dados.append([emp.data, emp.unidade_origem or '-', emp.unidade_destino or '-',
+                          'R$ ' + '{:,.2f}'.format(emp.valor), emp.descricao[:40], status])
+        dados.append(['', '', '', '', 'Total Pendente:', 'R$ ' + '{:,.2f}'.format(total_pendente)])
+        dados.append(['', '', '', '', 'Total Quitado:', 'R$ ' + '{:,.2f}'.format(total_quitado)])
+        t = Table(dados, colWidths=[2.2*cm, 3.5*cm, 3.5*cm, 2.5*cm, 4.5*cm, 2.3*cm])
         t.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
             ('GRID', (0, 0), (-1, -3), 0.5, colors.lightgrey),
             ('ROWBACKGROUNDS', (0, 1), (-1, -3), [colors.white, colors.HexColor('#f8f9fa')]),
             ('PADDING', (0, 0), (-1, -1), 5),
@@ -633,6 +579,7 @@ def relatorio_emprestimos_pdf():
         story.append(t)
         story.append(Spacer(1, 1*cm))
         story.append(HRFlowable(width='100%', thickness=1, color=colors.lightgrey))
+        story.append(Spacer(1, 0.2*cm))
         story.append(Paragraph(
             'Relatorio gerado em ' + datetime.now().strftime('%d/%m/%Y as %H:%M') + ' | Sistema OK INN Leve Hoteis',
             footer_style))
@@ -661,11 +608,9 @@ def nova_movimentacao():
         mov.unidade = data.get('unidade')
         mov.valor = float(data.get('valor', 0))
     elif tipo == 'saida_rateio':
+        mov.valor = float(data.get('valor_total', 0))
         mov.unidade_origem = data.get('unidade_origem', '')
-        rateios = data.get('rateios', [])
-        total = sum(float(r.get('valor', 0)) for r in rateios if float(r.get('valor', 0)) > 0)
-        mov.valor = total
-        for r in rateios:
+        for r in data.get('rateios', []):
             if float(r.get('valor', 0)) > 0:
                 mov.rateios.append(RateioCofre(unidade=r['unidade'], valor=float(r['valor'])))
     elif tipo == 'emprestimo':
@@ -682,9 +627,13 @@ def nova_movimentacao():
             if emp:
                 emp.emprestimo_quitado = True
                 emp.emprestimo_quitado_at = datetime.utcnow()
-    db.session.add(mov)
-    db.session.commit()
-    return jsonify({'success': True, 'message': 'Movimentacao registrada!'})
+    try:
+        db.session.add(mov)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Movimentacao registrada!'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/cofre/movimentacao/<int:mov_id>/excluir', methods=['POST'])
@@ -693,96 +642,20 @@ def excluir_movimentacao(mov_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Nao autorizado'}), 403
     mov = MovimentacaoCofre.query.get_or_404(mov_id)
+    # Se for devolucao, reabrir o emprestimo vinculado
+    if mov.tipo == 'devolucao':
+        emp = MovimentacaoCofre.query.filter_by(
+            tipo='emprestimo',
+            unidade_origem=mov.unidade_origem,
+            unidade_destino=mov.unidade_destino,
+            emprestimo_quitado=True
+        ).order_by(MovimentacaoCofre.emprestimo_quitado_at.desc()).first()
+        if emp:
+            emp.emprestimo_quitado = False
+            emp.emprestimo_quitado_at = None
     db.session.delete(mov)
     db.session.commit()
     return jsonify({'success': True})
-
-
-@app.route('/admin/exportar')
-@login_required
-def exportar_backup():
-    if current_user.role != 'admin':
-        flash('Acesso restrito.', 'danger')
-        return redirect(url_for('dashboard'))
-    try:
-        import openpyxl
-        from openpyxl.styles import Font, PatternFill
-        from io import BytesIO
-        wb = openpyxl.Workbook()
-
-        # Aba 1 - Fechamentos
-        ws1 = wb.active
-        ws1.title = 'Fechamentos'
-        cab1 = ['ID', 'Unidade', 'Data Fechamento', 'Quem Fechou', 'Movimento',
-                'Status', 'Dinheiro Saida', 'Dinheiro Encerramento', 'Cartao',
-                'Faturado', 'Uso Credito', 'Deposito Bancario', 'Cortesia',
-                'Cheque', 'Vendas Online', 'Financeiro Obs', 'Diretor Obs',
-                'Cofre Confirmado', 'Criado em']
-        ws1.append(cab1)
-        for cell in ws1[1]:
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
-        fcs = FechamentoCaixa.query.order_by(FechamentoCaixa.created_at.asc()).all()
-        for fc in fcs:
-            ws1.append([
-                fc.id, fc.unidade, fc.data_fechamento, fc.quem_fechou, fc.movimento_num,
-                fc.status_label(), fc.dinheiro_saida, fc.dinheiro_encerramento, fc.cartao,
-                fc.faturado, fc.uso_credito, fc.deposito_bancario, fc.cortesia,
-                fc.cheque, fc.vendas_online, fc.financeiro_obs or '', fc.diretor_obs or '',
-                'Sim' if fc.cofre_confirmado else 'Nao',
-                fc.created_at.strftime('%d/%m/%Y %H:%M') if fc.created_at else '',
-            ])
-
-        # Aba 2 - Movimentacoes Cofre
-        ws2 = wb.create_sheet('Cofre Movimentacoes')
-        cab2 = ['ID', 'Tipo', 'Descricao', 'Data', 'Unidade', 'Origem',
-                'Destino', 'Valor', 'Quitado', 'Criado em']
-        ws2.append(cab2)
-        for cell in ws2[1]:
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
-        movs = MovimentacaoCofre.query.order_by(MovimentacaoCofre.created_at.asc()).all()
-        for mov in movs:
-            ws2.append([
-                mov.id, mov.tipo_label(), mov.descricao, mov.data,
-                mov.unidade or '', mov.unidade_origem or '', mov.unidade_destino or '',
-                mov.valor, 'Sim' if mov.emprestimo_quitado else 'Nao',
-                mov.created_at.strftime('%d/%m/%Y %H:%M') if mov.created_at else '',
-            ])
-
-        # Aba 3 - Rateios
-        ws3 = wb.create_sheet('Cofre Rateios')
-        cab3 = ['ID Movimentacao', 'Unidade Devedora', 'Valor']
-        ws3.append(cab3)
-        for cell in ws3[1]:
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
-        rateios = RateioCofre.query.all()
-        for r in rateios:
-            ws3.append([r.movimentacao_id, r.unidade, r.valor])
-
-        # Aba 4 - Saldos Atuais
-        ws4 = wb.create_sheet('Saldos Atuais')
-        cab4 = ['Unidade', 'Saldo Atual']
-        ws4.append(cab4)
-        for cell in ws4[1]:
-            cell.font = Font(bold=True, color='FFFFFF')
-            cell.fill = PatternFill(start_color='1a3a5c', end_color='1a3a5c', fill_type='solid')
-        saldos, _ = calcular_saldos()
-        for unidade, saldo in saldos.items():
-            ws4.append([unidade, saldo])
-
-        # Salva em memoria e envia
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-        nome = 'backup_okinn_' + datetime.now().strftime('%Y%m%d_%H%M') + '.xlsx'
-        return send_file(output, as_attachment=True,
-                         download_name=nome,
-                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    except Exception as e:
-        flash('Erro ao gerar backup: ' + str(e), 'danger')
-        return redirect(url_for('dashboard'))
 
 
 @app.route('/admin/usuarios')
