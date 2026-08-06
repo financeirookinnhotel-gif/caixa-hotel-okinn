@@ -1,28 +1,34 @@
-# 🏨 Sistema de Fechamento de Caixa — OK INN
+# 🏨 Sistema de Fechamento de Caixa — OK INN / Leve Hotéis
 
-Sistema web para upload, conferência e aprovação de fechamentos de caixa hoteleiros.
+Sistema web para upload, conferência e aprovação de fechamentos de caixa hoteleiros, com gestão de cofre entre unidades.
 
 ## Funcionalidades
 
 - 📄 Upload e leitura automática de PDFs (sistema HMAX)
 - ✅ Fluxo de aprovação: Financeiro → Diretor → Cofre
-- 📊 Dashboard com saúde por unidade
-- 📑 Geração de relatório PDF ao concluir
+- 📊 Dashboard com saúde por unidade e saldo do cofre
+- 📑 Geração de relatório PDF ao concluir um fechamento
 - 🌐 Suporte a Vendas Online (segundo PDF do Supervisor)
+- 🔒 Cofre: saldo por unidade, entradas/saídas manuais, rateio de saída entre unidades
+- 🤝 Empréstimos entre unidades (com controle de quitação) e relatório em PDF
+- 📜 Extrato de movimentações por unidade
 - 👥 Gestão de usuários com perfis (Financeiro / Diretor / Admin)
+- 🔑 Troca de senha pelo próprio usuário ("Minha Senha")
+- 💾 Exportação de backup completo em JSON (Admin)
 
 ## Unidades cadastradas
 
 | Unidade | Status |
 |---------|--------|
-| Ok Inn Tubarão | ✅ Ativa |
-| Ok Inn Express Tubarão | ✅ Ativa |
-| Criciúma Express | ✅ Ativa |
-| Criciúma Centro | ✅ Ativa |
+| Ok Inn Tubarao | ✅ Ativa |
+| Ok Inn Express Tubarao | ✅ Ativa |
+| Criciuma Express | ✅ Ativa |
+| Criciuma Centro | ✅ Ativa |
 | Floripa Coqueiros | ⏸️ Inativa (pronta p/ ativar) |
-| Atlântico Sul | ✅ Ativa |
-| Renascença | ✅ Ativa |
+| Atlantico Sul | ✅ Ativa |
+| Renascenca | ✅ Ativa |
 | You HI 01 | ✅ Ativa |
+| Leve | 🔒 Só aparece no Cofre (matriz) |
 
 ---
 
@@ -68,9 +74,10 @@ git push -u origin main
    - **Name:** `caixa-hotel-okinn`
    - **Runtime:** `Python 3`
    - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `python -c "from app import init_db; init_db()" && gunicorn wsgi:app --bind 0.0.0.0:$PORT`
+   - **Start Command:** `gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120`
 6. Em **Environment Variables**, adicione:
    - `SECRET_KEY` → clique em "Generate" para gerar automaticamente
+   - `DATABASE_URL` → se você criar um banco Postgres no Render (recomendado — o disco do Web Service é efêmero e um SQLite local perderia os dados a cada deploy), conecte-o aqui. Sem essa variável, o sistema usa um SQLite local.
 7. Clique em **"Create Web Service"**
 
 O Render vai buildar e em ~3 minutos o sistema estará online com uma URL tipo:
@@ -108,12 +115,25 @@ O Render vai buildar e em ~3 minutos o sistema estará online com uma URL tipo:
 4. Salve → aparecerá o botão de **Cofre**
 5. Confirme o envio ao cofre → relatório PDF é gerado automaticamente
 
+### Cofre
+- Menu **Cofre**: veja o saldo de cada unidade, registre entradas/saídas manuais, saldo inicial, empréstimos entre unidades e saídas com rateio
+- **Extrato** por unidade: histórico completo de movimentações e saldo acumulado
+- **Relatório de Empréstimos**: lista empréstimos pendentes/quitados, com filtro por período e exportação em PDF
+
 ---
 
 ## 🔧 Desenvolvimento local
 
+O `wsgi.py` não sobe servidor sozinho (ele é feito para rodar via `gunicorn`, que não funciona nativamente no Windows). Para testar localmente:
+
 ```bash
 pip install -r requirements.txt
-python wsgi.py
+python -c "from wsgi import app; app.run(debug=True)"
 # Acesse: http://localhost:5000
+```
+
+Em Linux/Mac, você também pode usar o gunicorn diretamente:
+
+```bash
+gunicorn wsgi:app --bind 0.0.0.0:5000
 ```

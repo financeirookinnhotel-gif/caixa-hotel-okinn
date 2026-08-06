@@ -1,1 +1,1 @@
-web: python -c "from app import init_db; init_db()" && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+web: sh -c 'export PATH=$HOME/.local/bin:$PATH && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 1'
