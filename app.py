@@ -184,9 +184,9 @@ def calcular_saldos():
                 emprestimos_pendentes.append(mov)
         elif mov.tipo == 'devolucao':
             if mov.unidade_origem in saldos:
-                saldos[mov.unidade_origem] += mov.valor  # credor recebe de volta
+                saldos[mov.unidade_origem] += mov.valor
             if mov.unidade_destino in saldos:
-                saldos[mov.unidade_destino] -= mov.valor  # devedor paga
+                saldos[mov.unidade_destino] -= mov.valor
     return saldos, emprestimos_pendentes
 
 
@@ -642,7 +642,6 @@ def excluir_movimentacao(mov_id):
     if current_user.role != 'admin':
         return jsonify({'error': 'Nao autorizado'}), 403
     mov = MovimentacaoCofre.query.get_or_404(mov_id)
-    # Se for devolucao, reabrir o emprestimo vinculado
     if mov.tipo == 'devolucao':
         emp = MovimentacaoCofre.query.filter_by(
             tipo='emprestimo',
@@ -656,6 +655,54 @@ def excluir_movimentacao(mov_id):
     db.session.delete(mov)
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/admin/backup')
+@login_required
+def exportar_backup():
+    if current_user.role != 'admin':
+        flash('Acesso restrito.', 'danger')
+        return redirect(url_for('dashboard'))
+    import json
+    from io import BytesIO
+    backup = {}
+
+    usuarios = User.query.all()
+    backup['usuarios'] = [{'id': u.id, 'username': u.username, 'name': u.name, 'role': u.role, 'active': u.active} for u in usuarios]
+
+    fechamentos = FechamentoCaixa.query.all()
+    backup['fechamentos'] = [{
+        'id': fc.id, 'unidade': fc.unidade, 'data_fechamento': fc.data_fechamento,
+        'quem_fechou': fc.quem_fechou, 'movimento_num': fc.movimento_num,
+        'dinheiro_saida': fc.dinheiro_saida, 'dinheiro_encerramento': fc.dinheiro_encerramento,
+        'faturado': fc.faturado, 'uso_credito': fc.uso_credito,
+        'deposito_bancario': fc.deposito_bancario, 'cartao': fc.cartao,
+        'cortesia': fc.cortesia, 'cheque': fc.cheque,
+        'vendas_online': fc.vendas_online, 'vendas_online_obs': fc.vendas_online_obs,
+        'cofre_opcional': fc.cofre_opcional, 'cofre_confirmado': fc.cofre_confirmado,
+        'status': fc.status,
+        'financeiro_obs': fc.financeiro_obs, 'diretor_obs': fc.diretor_obs,
+        'created_at': fc.created_at.strftime('%d/%m/%Y %H:%M') if fc.created_at else '',
+        'cofre_at': fc.cofre_at.strftime('%d/%m/%Y %H:%M') if fc.cofre_at else '',
+    } for fc in fechamentos]
+
+    movimentacoes = MovimentacaoCofre.query.all()
+    backup['movimentacoes'] = [{
+        'id': m.id, 'tipo': m.tipo, 'descricao': m.descricao, 'data': m.data,
+        'unidade': m.unidade, 'valor': m.valor,
+        'unidade_origem': m.unidade_origem, 'unidade_destino': m.unidade_destino,
+        'emprestimo_quitado': m.emprestimo_quitado,
+        'emprestimo_quitado_at': m.emprestimo_quitado_at.strftime('%d/%m/%Y %H:%M') if m.emprestimo_quitado_at else '',
+        'obs': m.obs,
+        'created_at': m.created_at.strftime('%d/%m/%Y %H:%M') if m.created_at else '',
+        'rateios': [{'unidade': r.unidade, 'valor': r.valor} for r in m.rateios],
+    } for m in movimentacoes]
+
+    json_bytes = json.dumps(backup, ensure_ascii=False, indent=2).encode('utf-8')
+    buffer = BytesIO(json_bytes)
+    buffer.seek(0)
+    nome = 'backup_okinn_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.json'
+    return send_file(buffer, as_attachment=True, download_name=nome, mimetype='application/json')
 
 
 @app.route('/admin/usuarios')
