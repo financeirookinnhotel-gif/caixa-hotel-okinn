@@ -1,9 +1,13 @@
-flask==3.0.0
-flask-sqlalchemy==3.1.1
-flask-login==0.6.3
-werkzeug==3.0.1
-gunicorn==21.2.0
-pdfplumber==0.10.3
-reportlab==4.0.8
-psycopg2-binary==2.9.9
-openpyxl==3.1.2
+services:
+  - type: web
+    name: caixa-hotel-okinn
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///caixa_hotel.db
+      - key: PYTHON_VERSION
+        value: 3.11.0
