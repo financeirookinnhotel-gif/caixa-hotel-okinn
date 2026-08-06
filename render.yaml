@@ -1,1 +1,13 @@
-web: python -c "from app import init_db; init_db()" && gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+services:
+  - type: web
+    name: caixa-hotel-okinn
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///caixa_hotel.db
+      - key: PYTHON_VERSION
+        value: 3.11.0
