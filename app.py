@@ -666,10 +666,8 @@ def exportar_backup():
     import json
     from io import BytesIO
     backup = {}
-
     usuarios = User.query.all()
     backup['usuarios'] = [{'id': u.id, 'username': u.username, 'name': u.name, 'role': u.role, 'active': u.active} for u in usuarios]
-
     fechamentos = FechamentoCaixa.query.all()
     backup['fechamentos'] = [{
         'id': fc.id, 'unidade': fc.unidade, 'data_fechamento': fc.data_fechamento,
@@ -685,7 +683,6 @@ def exportar_backup():
         'created_at': fc.created_at.strftime('%d/%m/%Y %H:%M') if fc.created_at else '',
         'cofre_at': fc.cofre_at.strftime('%d/%m/%Y %H:%M') if fc.cofre_at else '',
     } for fc in fechamentos]
-
     movimentacoes = MovimentacaoCofre.query.all()
     backup['movimentacoes'] = [{
         'id': m.id, 'tipo': m.tipo, 'descricao': m.descricao, 'data': m.data,
@@ -697,7 +694,6 @@ def exportar_backup():
         'created_at': m.created_at.strftime('%d/%m/%Y %H:%M') if m.created_at else '',
         'rateios': [{'unidade': r.unidade, 'valor': r.valor} for r in m.rateios],
     } for m in movimentacoes]
-
     json_bytes = json.dumps(backup, ensure_ascii=False, indent=2).encode('utf-8')
     buffer = BytesIO(json_bytes)
     buffer.seek(0)
