@@ -1,5 +1,6 @@
 import pdfplumber
 import re
+from itertools import groupby
 
 ALIAS_FECHADORES = {
     'EDEM': 'EDEMILSON',
@@ -62,6 +63,84 @@ def resolver_fechador(nome):
     return nome.strip()
 
 
+def _valor_num(texto):
+    if not texto or not any(c.isdigit() for c in texto):
+        return None
+    return normalizar_valor(texto)
+
+
+def _bounds_tabela_movimentos(words):
+    """Acha os limites de coluna da tabela 'Data/Hora Historico Entrada Saida Forma'.
+
+    O PDF do HMAX imprime essa tabela ao lado da tabela de Antecipacoes
+    (adiantamentos recebidos), na mesma altura visual. O pdfplumber concatena
+    as duas em uma unica linha de texto, entao so a posicao (coordenada X) das
+    palavras permite separar as duas tabelas — nao da pra confiar em regex
+    sobre o texto puro (ver ALIAS de 'Dinheiro' colidindo com 'Antecipacoes').
+    """
+    data_hora = next((w for w in words if w['text'] == 'Data/Hora'), None)
+    forma = next((w for w in words if w['text'] == 'Forma'), None)
+    if not (data_hora and forma):
+        return None
+    top_ref = round(data_hora['top'])
+    def achar(opcoes):
+        return next((w for w in words if w['text'] in opcoes and round(w['top']) == top_ref), None)
+    historico = achar(['Histórico', 'Historico'])
+    entrada = achar(['Entrada'])
+    saida = achar(['Saída', 'Saida'])
+    if not (historico and entrada and saida):
+        return None
+    return {
+        'tabela_x0': data_hora['x0'] - 5,
+        'historico_x0': historico['x0'] - 5,
+        'entrada_x0': historico['x1'],
+        'meio_entrada_saida': (entrada['x1'] + saida['x0']) / 2,
+        'meio_saida_forma': (saida['x1'] + forma['x0']) / 2,
+        'forma_x0': forma['x0'] - 3,
+    }
+
+
+def _dinheiro_saida_posicional(pdf):
+    """Soma os valores da coluna 'Saida' com forma 'Dinheiro' na tabela de
+    movimentos, excluindo a(s) linha(s) de MOVIMENTO (essas ja sao contadas
+    em dinheiro_encerramento, item 5)."""
+    bounds = None
+    for page in pdf.pages:
+        bounds = _bounds_tabela_movimentos(page.extract_words())
+        if bounds:
+            break
+    if not bounds:
+        return None
+
+    total = 0.0
+    for page in pdf.pages:
+        palavras = [w for w in page.extract_words() if w['x0'] >= bounds['tabela_x0']]
+        palavras.sort(key=lambda w: (round(w['top']), w['x0']))
+        for _, grupo in groupby(palavras, key=lambda w: round(w['top'])):
+            grupo = list(grupo)
+            textos = [w['text'] for w in grupo]
+            if 'Data/Hora' in textos or 'Forma' in textos:
+                continue
+            historico = ' '.join(
+                w['text'] for w in grupo
+                if bounds['historico_x0'] <= w['x0'] < bounds['entrada_x0']
+            )
+            forma = ' '.join(
+                w['text'] for w in grupo if w['x0'] >= bounds['forma_x0']
+            )
+            if 'Dinheiro' not in forma or 'MOVIMENTO' in historico.upper():
+                continue
+            saida_toks = [
+                w for w in grupo
+                if bounds['meio_entrada_saida'] <= w['x0'] < bounds['meio_saida_forma']
+            ]
+            for w in saida_toks:
+                valor = _valor_num(w['text'])
+                if valor:
+                    total += valor
+    return total
+
+
 def extract_caixa_data(pdf_path):
     result = {
         'unidade': '',
@@ -105,6 +184,8 @@ def extract_caixa_data(pdf_path):
 
         result['unidade'] = unidade_encontrada
 
+        dinheiro_saida_posicional = _dinheiro_saida_posicional(pdf)
+
         for page in pdf.pages:
             full_text += (page.extract_text() or '') + '\n'
 
@@ -132,20 +213,11 @@ def extract_caixa_data(pdf_path):
         dinheiro_encerramento += normalizar_valor(match.group(1))
     result['dinheiro_encerramento'] = dinheiro_encerramento
 
-    # Dinheiro saida — apenas linhas com formato de data/hora + historico conhecido
-    # Formato: DD/MM HH:MMh AP NNN CTA NNNNN Dinheiro VALOR
-    # O valor vem DEPOIS da palavra Dinheiro, precedido por espaco
-    dinheiro_saida = 0.0
-    saida_pat = re.compile(
-        r'\d{2}/\d{2}\s+[\d:]+h\s+\S+\s+\S+\s+\S+\s+Dinheiro\s+([\d.,]+)',
-        re.IGNORECASE
-    )
-    for match in saida_pat.finditer(full_text):
-        valor = normalizar_valor(match.group(1))
-        # Ignora valores muito altos que sao claramente numeros de conta
-        if valor < 50000:
-            dinheiro_saida += valor
-    result['dinheiro_saida'] = dinheiro_saida
+    # Dinheiro saida (item 4 - saida nao relacionada ao encerramento).
+    # Calculado por posicao (coluna 'Saida' da tabela de movimentos), pois a
+    # tabela de Antecipacoes fica ao lado e tem o mesmo formato textual
+    # "data hora ... Dinheiro valor" — so a posicao X distingue as duas.
+    result['dinheiro_saida'] = dinheiro_saida_posicional or 0.0
 
     # Deposito bancario
     dep_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Dep', re.IGNORECASE)
