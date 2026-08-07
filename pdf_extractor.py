@@ -37,6 +37,10 @@ UNIDADE_MAP = {
     'RENASCENÇA': 'Renascenca',
     'YOU HI 01': 'You HI 01',
     'YOU HI': 'You HI 01',
+    'YOU HOTEIS INTELIGENTES 01': 'You HI 01',
+    'YOU HOTÉIS INTELIGENTES 01': 'You HI 01',
+    'YOU HOTEIS INTELIGENTES': 'You HI 01',
+    'YOU HOTÉIS INTELIGENTES': 'You HI 01',
 }
 
 
