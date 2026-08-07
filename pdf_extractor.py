@@ -137,7 +137,7 @@ def extract_caixa_data(pdf_path):
     # O valor vem DEPOIS da palavra Dinheiro, precedido por espaco
     dinheiro_saida = 0.0
     saida_pat = re.compile(
-        r'\d{2}/\d{2}\s+[\d:]+h\s+(?!MOVIMENTO)\S+\s+\S+\s+\S+\s+Dinheiro\s+([\d.,]+)',
+        r'\d{2}/\d{2}\s+[\d:]+h\s+\S+\s+\S+\s+\S+\s+Dinheiro\s+([\d.,]+)',
         re.IGNORECASE
     )
     for match in saida_pat.finditer(full_text):
