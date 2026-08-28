@@ -156,6 +156,47 @@ function parseDataInput(str) {
   return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]));
 }
 
+var FILTROS_STORAGE_KEY = 'fechamentos_filtros';
+
+function salvarFiltros() {
+  var estado = {
+    unidade: document.getElementById('filtroUnidade').value,
+    status: document.getElementById('filtroStatus').value,
+    dataInicio: document.getElementById('filtroDataInicio').value,
+    dataFim: document.getElementById('filtroDataFim').value,
+    ocultandoConcluidos: ocultandoConcluidos
+  };
+  try {
+    sessionStorage.setItem(FILTROS_STORAGE_KEY, JSON.stringify(estado));
+  } catch (e) { /* sessionStorage indisponivel — ignora, filtro so nao persiste */ }
+}
+
+function restaurarFiltros() {
+  var raw;
+  try {
+    raw = sessionStorage.getItem(FILTROS_STORAGE_KEY);
+  } catch (e) {
+    return;
+  }
+  if (!raw) return;
+  var estado;
+  try {
+    estado = JSON.parse(raw);
+  } catch (e) {
+    return;
+  }
+  document.getElementById('filtroUnidade').value    = estado.unidade || '';
+  document.getElementById('filtroStatus').value     = estado.status || '';
+  document.getElementById('filtroDataInicio').value = estado.dataInicio || '';
+  document.getElementById('filtroDataFim').value    = estado.dataFim || '';
+  ocultandoConcluidos = !!estado.ocultandoConcluidos;
+  var btn = document.getElementById('btnOcultarConcluidos');
+  if (ocultandoConcluidos) {
+    btn.classList.add('ativo');
+    btn.innerHTML = '<i class="fas fa-eye me-1"></i>Mostrar Concluidos';
+  }
+}
+
 function filtrar() {
   var unidade  = document.getElementById('filtroUnidade').value;
   var status   = document.getElementById('filtroStatus').value;
@@ -179,6 +220,7 @@ function filtrar() {
   });
 
   document.getElementById('countLabel').textContent = count + ' resultado(s)';
+  salvarFiltros();
 }
 
 function limparFiltros() {
@@ -186,6 +228,7 @@ function limparFiltros() {
   document.getElementById('filtroStatus').value     = '';
   document.getElementById('filtroDataInicio').value = '';
   document.getElementById('filtroDataFim').value    = '';
+  try { sessionStorage.removeItem(FILTROS_STORAGE_KEY); } catch (e) {}
   filtrar();
 }
 
@@ -214,7 +257,8 @@ function excluirFechamento(id) {
 
 (function() {
   var total = document.querySelectorAll('#tbodyFechamentos tr[data-unidade]').length;
-  if (total > 0) document.getElementById('countLabel').textContent = total + ' fechamento(s)';
+  restaurarFiltros();
+  if (total > 0) filtrar();
 })();
 </script>
 {% endblock %}
