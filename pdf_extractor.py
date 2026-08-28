@@ -71,6 +71,11 @@ def resolver_fechador(nome):
     return nome.strip()
 
 
+# Unidades sem cofre com dinheiro fixo — fecham so com recibo, entao o
+# envio ao cofre e opcional (o Diretor pode pular direto para concluido).
+UNIDADES_SEM_COFRE_FIXO = {'Atlantico Sul', 'Renascenca'}
+
+
 def _valor_num(texto):
     if not texto or not any(c.isdigit() for c in texto):
         return None
@@ -162,6 +167,7 @@ def extract_caixa_data(pdf_path):
         'deposito_bancario': 0.0,
         'cartao': 0.0,
         'cortesia': 0.0,
+        'cofre_opcional': False,
     }
 
     full_text = ''
@@ -191,6 +197,7 @@ def extract_caixa_data(pdf_path):
                     break
 
         result['unidade'] = unidade_encontrada
+        result['cofre_opcional'] = unidade_encontrada in UNIDADES_SEM_COFRE_FIXO
 
         dinheiro_saida_posicional = _dinheiro_saida_posicional(pdf)
 
