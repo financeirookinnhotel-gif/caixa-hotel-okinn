@@ -42,6 +42,11 @@ UNIDADES_ATIVAS = [u for u in UNIDADES if u != 'Floripa Coqueiros']
 UNIDADES_COFRE = UNIDADES + ['Leve']
 ROLES = ['financeiro', 'diretor', 'admin']
 
+# Unidades que fecham so com recibo (nao tem dinheiro fisico de caixa) —
+# nunca podem enviar dinheiro ao cofre, independente do que o extrator de
+# PDF tenha reconhecido ou do que já esteja salvo no fechamento.
+UNIDADES_SEM_DINHEIRO_FISICO = {'Atlantico Sul', 'Renascenca'}
+
 
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -305,7 +310,10 @@ def upload():
                 cartao=data.get('cartao', 0),
                 cortesia=data.get('cortesia', 0),
                 cheque=data.get('cheque', 0),
-                cofre_opcional=data.get('cofre_opcional', False),
+                cofre_opcional=(
+                    data.get('cofre_opcional', False)
+                    or data.get('unidade', '') in UNIDADES_SEM_DINHEIRO_FISICO
+                ),
                 tem_vendas_online=tem_vendas_online,
                 vendas_online=vendas_online_valor if tem_vendas_online else 0,
                 vendas_online_obs=vendas_online_obs if tem_vendas_online else '',
@@ -325,6 +333,9 @@ def upload():
 @login_required
 def fechamento_detail(fc_id):
     fc = FechamentoCaixa.query.get_or_404(fc_id)
+    if fc.unidade in UNIDADES_SEM_DINHEIRO_FISICO and not fc.cofre_opcional:
+        fc.cofre_opcional = True
+        db.session.commit()
     return render_template('fechamento_detail.html', fc=fc)
 
 
@@ -373,6 +384,9 @@ def diretor_check(fc_id):
     fc.diretor_user_id = current_user.id
     fc.diretor_at = datetime.utcnow()
     enviar_cofre = data.get('enviar_cofre', True)
+    if fc.unidade in UNIDADES_SEM_DINHEIRO_FISICO:
+        enviar_cofre = False
+        fc.cofre_opcional = True
     if enviar_cofre:
         fc.status = 'aguardando_cofre'
     else:
