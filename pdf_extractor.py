@@ -167,6 +167,7 @@ def extract_caixa_data(pdf_path):
         'deposito_bancario': 0.0,
         'cartao': 0.0,
         'cortesia': 0.0,
+        'cheque': 0.0,
         'cofre_opcional': False,
     }
 
@@ -239,6 +240,15 @@ def extract_caixa_data(pdf_path):
     dep_total = sum(normalizar_valor(m.group(1)) for m in dep_pat.finditer(full_text))
     if dep_total > 0:
         result['deposito_bancario'] = dep_total
+
+    # Cheque — soma no deposito bancario (cheque depositado tambem e
+    # deposito bancario) e guarda a parte separada em 'cheque' so para
+    # exibir o rotulo "+ Cheque" no relatorio.
+    cheque_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cheque', re.IGNORECASE)
+    cheque_total = sum(normalizar_valor(m.group(1)) for m in cheque_pat.finditer(full_text))
+    if cheque_total > 0:
+        result['cheque'] = cheque_total
+        result['deposito_bancario'] += cheque_total
 
     # Cartao
     car_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Cart', re.IGNORECASE)
