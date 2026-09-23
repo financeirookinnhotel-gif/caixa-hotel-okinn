@@ -78,7 +78,7 @@
     <a href="{{ url_for('upload') }}" class="nav-link {% if request.endpoint == 'upload' %}active{% endif %}">
       <i class="fas fa-upload"></i> Novo Fechamento
     </a>
-    <a href="{{ url_for('stone_conciliacao') }}" class="nav-link {% if request.endpoint in ['stone_conciliacao', 'stone_upload'] %}active{% endif %}">
+    <a href="{{ url_for('stone_transacoes') }}" class="nav-link {% if request.endpoint == 'stone_transacoes' %}active{% endif %}">
       <i class="fas fa-gem"></i> Vendas Stone
     </a>
     {% endif %}

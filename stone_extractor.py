@@ -1,3 +1,5 @@
+import csv
+import io
 import re
 
 import pdfplumber
@@ -92,3 +94,41 @@ def extract_vendas_stone(pdf_path):
         result['periodo_fim'] = m.group(2)
 
     return result
+
+
+def ler_transacoes_stone_csv(file_path_or_stream):
+    """Le o extrato de vendas detalhado da Stone (uma linha por venda, com
+    STONE ID / codigo de autorizacao), usado para cruzar com as transacoes
+    de cartao do fechamento do HITS.
+
+    Formato: CSV separado por ';', decimais com virgula, colunas em
+    maiusculo (DOCUMENTO, STONECODE, DATA DA VENDA, BANDEIRA, PRODUTO,
+    STONE ID, ..., VALOR BRUTO, VALOR LIQUIDO, ..., CÓDIGO DE AUTORIZAÇÃO).
+    """
+    if hasattr(file_path_or_stream, 'read'):
+        raw = file_path_or_stream.read()
+        if isinstance(raw, bytes):
+            raw = raw.decode('utf-8-sig', errors='replace')
+        texto = raw
+    else:
+        with open(file_path_or_stream, encoding='utf-8-sig') as f:
+            texto = f.read()
+
+    linhas = []
+    reader = csv.DictReader(io.StringIO(texto), delimiter=';')
+    for row in reader:
+        stone_id = (row.get('STONE ID') or '').strip()
+        if not stone_id:
+            continue
+        linhas.append({
+            'documento': (row.get('DOCUMENTO') or '').strip(),
+            'stonecode': (row.get('STONECODE') or '').strip(),
+            'data_venda': (row.get('DATA DA VENDA') or '').strip(),
+            'bandeira': (row.get('BANDEIRA') or '').strip(),
+            'produto': (row.get('PRODUTO') or '').strip(),
+            'stone_id': stone_id,
+            'valor_bruto': _valor(row.get('VALOR BRUTO')),
+            'valor_liquido': _valor(row.get('VALOR LIQUIDO')),
+            'codigo_autorizacao': (row.get('CÓDIGO DE AUTORIZAÇÃO') or '').strip(),
+        })
+    return linhas

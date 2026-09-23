@@ -207,6 +207,48 @@
 
   <div class="col-lg-7">
 
+    {% if cruzamento_cartao is not none %}
+    <div class="card mb-4 border-info">
+      {% set n_ok = cruzamento_cartao | selectattr('match') | list | length %}
+      <div class="card-header py-3" style="background:#f0f4ff; color:#1a3a5c; border-bottom:1px solid #b8d0f8;">
+        <h6 class="mb-0"><i class="fas fa-gem me-2"></i>Cruzamento de Cartoes (Stone)</h6>
+        <small>{{ n_ok }} de {{ cruzamento_cartao|length }} vendas de cartao encontradas na planilha da Stone, por STONE ID.</small>
+      </div>
+      <div class="card-body p-0">
+        {% if cruzamento_cartao %}
+        <table class="table table-sm mb-0" style="font-size:0.85rem">
+          <thead style="background:#f8f9fa;">
+            <tr>
+              <th class="px-3 py-2">Tipo</th>
+              <th class="py-2">Stone ID</th>
+              <th class="py-2">Valor</th>
+              <th class="py-2">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in cruzamento_cartao %}
+            <tr>
+              <td class="px-3 py-2">{{ item.transacao.tipo }}</td>
+              <td class="py-2 text-muted">{{ item.transacao.stone_id }}</td>
+              <td class="py-2">R$ {{ '%.2f'|format(item.transacao.valor)|replace('.', ',') }}</td>
+              <td class="py-2">
+                {% if item.match %}
+                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Conferido</span>
+                {% else %}
+                <span class="badge bg-danger"><i class="fas fa-times me-1"></i>Nao encontrado</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted p-3 mb-0">Nenhuma venda de cartao (Stone) identificada neste fechamento.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
     {% if current_user.role in ['financeiro', 'admin'] and fc.status == 'aguardando_financeiro' %}
     <div class="card mb-4 border-warning">
       <div class="card-header py-3" style="background:#fff8e1; color:#856404; border-bottom:1px solid #ffc107;">

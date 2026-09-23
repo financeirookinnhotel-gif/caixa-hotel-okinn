@@ -323,6 +323,46 @@ CAIXA_HITS_HEADER_RE = re.compile(
 )
 
 
+TRANSACAO_HITS_RE = re.compile(r'(?=#\d+\s*-\s*)')
+TRANSACAO_HITS_TIPO_RE = re.compile(r'#(\d+)\s*-\s*(.+?)\s*-\s*')
+
+
+def extract_transacoes_cartao_hits(pdf_path):
+    """Extrai as transacoes individuais de cartao (Stone Mastercard/Visa
+    Credito/Debito) do log detalhado do fechamento do HITS, para cruzar
+    com a planilha de vendas da Stone pelo STONE ID (campo 'aut.:' aqui).
+
+    Fica de fora de proposito (o usuario decidiu dar o aceite manual):
+    Stone Pix, Dinheiro, Transferencia Bancaria, Virada de Sistema,
+    Faturado, Pix CNPJ — nenhuma dessas tem 'aut.:'/'doc.:' no PDF.
+    """
+    full_text = ''
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            full_text += (page.extract_text() or '') + '\n'
+
+    transacoes = []
+    for parte in TRANSACAO_HITS_RE.split(full_text):
+        m_tipo = TRANSACAO_HITS_TIPO_RE.match(parte)
+        if not m_tipo:
+            continue
+        num, tipo = m_tipo.group(1), m_tipo.group(2).strip()
+        tipo_upper = tipo.upper()
+        if 'STONE' not in tipo_upper or 'PIX' in tipo_upper:
+            continue
+        m_aut = re.search(r'aut\.:\s*(\S+)', parte)
+        valores = re.findall(r'\$([\d.,]+)', parte)
+        if not (m_aut and valores):
+            continue
+        transacoes.append({
+            'num_transacao': num,
+            'tipo': tipo,
+            'stone_id': m_aut.group(1),
+            'valor': normalizar_valor(valores[-1]),
+        })
+    return transacoes
+
+
 def extract_caixa_data_hits(pdf_path):
     result = {
         'unidade': '',
@@ -337,6 +377,7 @@ def extract_caixa_data_hits(pdf_path):
         'hits_virada_sistema': 0.0,
         'total_caixa': 0.0,
         'cofre_opcional': False,
+        'transacoes_cartao': [],
     }
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -366,5 +407,6 @@ def extract_caixa_data_hits(pdf_path):
     result['hits_pix_cnpj'] = totais.get('PIX CNPJ', 0.0)
     result['hits_virada_sistema'] = totais.get('VIRADA DE SISTEMA', 0.0)
     result['hits_stone_total'] = sum(v for k, v in totais.items() if 'STONE' in k)
+    result['transacoes_cartao'] = extract_transacoes_cartao_hits(pdf_path)
 
     return result

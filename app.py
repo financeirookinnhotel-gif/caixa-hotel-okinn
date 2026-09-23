@@ -6,7 +6,7 @@ from werkzeug.utils import secure_filename
 from datetime import datetime
 import os
 from pdf_extractor import extract_caixa_data, extract_caixa_data_hits
-from stone_extractor import extract_vendas_stone
+from stone_extractor import extract_vendas_stone, ler_transacoes_stone_csv
 
 app = Flask(__name__)
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///caixa_hotel.db')
@@ -206,6 +206,44 @@ class VendaStoneMensal(db.Model):
             return self.mes_ano
 
 
+class TransacaoStone(db.Model):
+    """Uma linha do extrato de vendas detalhado da Stone (por transacao),
+    usado para cruzar com as vendas de cartao do fechamento do HITS pelo
+    STONE ID (o mesmo numero aparece no PDF do HITS como 'aut.:')."""
+    id = db.Column(db.Integer, primary_key=True)
+    stone_id = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    documento = db.Column(db.String(20))
+    stonecode = db.Column(db.String(20))
+    data_venda = db.Column(db.String(20))
+    bandeira = db.Column(db.String(20))
+    produto = db.Column(db.String(30))
+    valor_bruto = db.Column(db.Float, default=0.0)
+    valor_liquido = db.Column(db.Float, default=0.0)
+    codigo_autorizacao = db.Column(db.String(20))
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class TransacaoCaixaHits(db.Model):
+    """Uma venda de cartao (Stone Mastercard/Visa Credito/Debito) extraida
+    do log detalhado de um fechamento do HITS, para cruzar com
+    TransacaoStone. Dinheiro, Transferencia, Virada de Sistema, Stone Pix
+    e Faturado ficam de fora — o usuario da o aceite manual para esses."""
+    id = db.Column(db.Integer, primary_key=True)
+    fechamento_id = db.Column(db.Integer, db.ForeignKey('fechamento_caixa.id'), nullable=False)
+    num_transacao = db.Column(db.String(20))
+    tipo = db.Column(db.String(50))
+    stone_id = db.Column(db.String(60))
+    valor = db.Column(db.Float, default=0.0)
+    fechamento = db.relationship(
+        'FechamentoCaixa',
+        backref=db.backref('transacoes_cartao', lazy=True, cascade='all, delete-orphan')
+    )
+
+    def stone_match(self):
+        return TransacaoStone.query.filter_by(stone_id=self.stone_id).first()
+
+
 def mes_ano_de(data_str):
     """Converte uma data 'DD/MM/AAAA' ou 'DD/MM/AA' em 'AAAA-MM'."""
     if not data_str:
@@ -393,6 +431,15 @@ def upload():
             )
             db.session.add(fc)
             db.session.commit()
+            for t in data.get('transacoes_cartao', []):
+                db.session.add(TransacaoCaixaHits(
+                    fechamento_id=fc.id,
+                    num_transacao=t.get('num_transacao', ''),
+                    tipo=t.get('tipo', ''),
+                    stone_id=t.get('stone_id', ''),
+                    valor=t.get('valor', 0),
+                ))
+            db.session.commit()
             flash('PDF processado com sucesso!', 'success')
             return redirect(url_for('fechamento_detail', fc_id=fc.id))
         else:
@@ -408,7 +455,13 @@ def fechamento_detail(fc_id):
     if fc.unidade in UNIDADES_SEM_DINHEIRO_FISICO and not fc.cofre_opcional:
         fc.cofre_opcional = True
         db.session.commit()
-    return render_template('fechamento_detail.html', fc=fc)
+    cruzamento_cartao = None
+    if fc.sistema_pms == 'hits':
+        cruzamento_cartao = [
+            {'transacao': t, 'match': t.stone_match()}
+            for t in fc.transacoes_cartao
+        ]
+    return render_template('fechamento_detail.html', fc=fc, cruzamento_cartao=cruzamento_cartao)
 
 
 @app.route('/fechamento/<int:fc_id>/excluir', methods=['POST'])
@@ -742,6 +795,51 @@ def excluir_movimentacao(mov_id):
     db.session.delete(mov)
     db.session.commit()
     return jsonify({'success': True})
+
+
+@app.route('/stone/transacoes', methods=['GET', 'POST'])
+@login_required
+def stone_transacoes():
+    if current_user.role not in ['financeiro', 'admin']:
+        flash('Acesso nao autorizado.', 'danger')
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        if 'csv' not in request.files or request.files['csv'].filename == '':
+            flash('Nenhum arquivo selecionado.', 'danger')
+            return redirect(request.url)
+        csv_file = request.files['csv']
+        if not csv_file.filename.lower().endswith('.csv'):
+            flash('Arquivo invalido. Envie apenas .CSV', 'danger')
+            return redirect(request.url)
+        try:
+            linhas = ler_transacoes_stone_csv(csv_file.stream)
+        except Exception as e:
+            flash('Erro ao processar CSV: ' + str(e), 'danger')
+            return redirect(request.url)
+        novas, atualizadas = 0, 0
+        for linha in linhas:
+            t = TransacaoStone.query.filter_by(stone_id=linha['stone_id']).first()
+            if not t:
+                t = TransacaoStone(stone_id=linha['stone_id'])
+                db.session.add(t)
+                novas += 1
+            else:
+                atualizadas += 1
+            t.documento = linha['documento']
+            t.stonecode = linha['stonecode']
+            t.data_venda = linha['data_venda']
+            t.bandeira = linha['bandeira']
+            t.produto = linha['produto']
+            t.valor_bruto = linha['valor_bruto']
+            t.valor_liquido = linha['valor_liquido']
+            t.codigo_autorizacao = linha['codigo_autorizacao']
+            t.uploaded_by = current_user.id
+        db.session.commit()
+        flash(f'{novas} transacoes novas e {atualizadas} atualizadas importadas da Stone!', 'success')
+        return redirect(url_for('stone_transacoes'))
+    total = TransacaoStone.query.count()
+    ultima = TransacaoStone.query.order_by(TransacaoStone.created_at.desc()).first()
+    return render_template('stone_transacoes.html', total=total, ultima=ultima)
 
 
 @app.route('/stone/upload', methods=['GET', 'POST'])

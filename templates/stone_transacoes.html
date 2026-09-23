@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Vendas Stone{% endblock %}
+{% block page_title %}<i class="fas fa-gem me-2"></i>Transacoes da Stone (cruzamento com HITS){% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card mb-4">
+      <div class="card-header py-3">
+        <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Como funciona</h6>
+      </div>
+      <div class="card-body">
+        <p class="mb-2 text-muted" style="font-size:0.9rem">
+          Envie o extrato de vendas detalhado da Stone (CSV ou XLS exportado como CSV,
+          uma linha por venda, com STONE ID e codigo de autorizacao). O sistema cruza
+          automaticamente cada venda de cartao (Mastercard/Visa Credito/Debito) dos
+          fechamentos do HITS com esse extrato, pelo STONE ID.
+        </p>
+        <p class="mb-0 text-muted" style="font-size:0.9rem">
+          Dinheiro, Transferencia Bancaria, Virada de Sistema e Stone Pix ficam de fora
+          do cruzamento automatico — voce da o aceite manual para esses.
+        </p>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-header py-3">
+        <h6 class="mb-0"><i class="fas fa-database me-2"></i>Situacao atual</h6>
+      </div>
+      <div class="card-body">
+        <p class="mb-0"><strong>{{ total }}</strong> transacoes da Stone importadas.</p>
+        {% if ultima %}
+        <small class="text-muted">Ultima importacao em {{ ultima.created_at.strftime('%d/%m/%Y %H:%M') }}</small>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header py-3">
+        <h6 class="mb-0"><i class="fas fa-file-csv me-2"></i>Importar Extrato de Vendas (CSV)</h6>
+      </div>
+      <div class="card-body p-4">
+        <form method="POST" enctype="multipart/form-data" id="csvForm">
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Arquivo CSV</label>
+            <input type="file" name="csv" id="csvInput" accept=".csv" class="form-control" required>
+            <small class="text-muted">Reenviar o mesmo periodo atualiza as transacoes existentes, sem duplicar.</small>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg w-100" id="submitBtn">
+            <i class="fas fa-upload me-2"></i>Importar Transacoes
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('csvForm').addEventListener('submit', function() {
+  var btn = document.getElementById('submitBtn');
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processando...';
+  btn.disabled = true;
+});
+</script>
+{% endblock %}
