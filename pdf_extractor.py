@@ -328,6 +328,18 @@ TRANSACAO_HITS_TIPO_RE = re.compile(r'#(\d+)\s*-\s*(.+?)\s*-\s*')
 
 
 def extract_transacoes_cartao_hits(pdf_path):
+    """Abre o PDF e extrai as transacoes de cartao (uso avulso/externo —
+    dentro de extract_caixa_data_hits usa-se _parse_transacoes_cartao_hits
+    direto, reaproveitando o texto ja extraido, para nao abrir o PDF
+    duas vezes)."""
+    full_text = ''
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            full_text += (page.extract_text() or '') + '\n'
+    return _parse_transacoes_cartao_hits(full_text)
+
+
+def _parse_transacoes_cartao_hits(full_text):
     """Extrai as transacoes individuais de cartao (Stone Mastercard/Visa
     Credito/Debito) do log detalhado do fechamento do HITS, para cruzar
     com a planilha de vendas da Stone pelo STONE ID (campo 'aut.:' aqui).
@@ -336,11 +348,6 @@ def extract_transacoes_cartao_hits(pdf_path):
     Stone Pix, Dinheiro, Transferencia Bancaria, Virada de Sistema,
     Faturado, Pix CNPJ — nenhuma dessas tem 'aut.:'/'doc.:' no PDF.
     """
-    full_text = ''
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            full_text += (page.extract_text() or '') + '\n'
-
     transacoes = []
     for parte in TRANSACAO_HITS_RE.split(full_text):
         m_tipo = TRANSACAO_HITS_TIPO_RE.match(parte)
@@ -401,12 +408,20 @@ def extract_caixa_data_hits(pdf_path):
         for tabela in tabelas:
             totais.update(_parse_resumo_caixa_hits(tabela))
 
+        # Reaproveita as paginas ja abertas (nao abre o PDF de novo) para
+        # pegar o log detalhado (onde ficam as transacoes de cartao) —
+        # em Render isso evita estourar o timeout do gunicorn processando
+        # o mesmo PDF duas vezes.
+        texto_todas_paginas = full_text
+        for page in pdf.pages[1:]:
+            texto_todas_paginas += '\n' + (page.extract_text() or '')
+
     result['dinheiro_encerramento'] = totais.get('DINHEIRO', 0.0)
     result['faturado'] = totais.get('FATURADO', 0.0)
     result['hits_transferencia_bancaria'] = totais.get('TRANSFERENCIA BANCARIA', 0.0)
     result['hits_pix_cnpj'] = totais.get('PIX CNPJ', 0.0)
     result['hits_virada_sistema'] = totais.get('VIRADA DE SISTEMA', 0.0)
     result['hits_stone_total'] = sum(v for k, v in totais.items() if 'STONE' in k)
-    result['transacoes_cartao'] = extract_transacoes_cartao_hits(pdf_path)
+    result['transacoes_cartao'] = _parse_transacoes_cartao_hits(texto_todas_paginas)
 
     return result
