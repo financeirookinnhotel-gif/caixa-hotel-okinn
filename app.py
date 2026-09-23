@@ -5,7 +5,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import os
-from pdf_extractor import extract_caixa_data
+from pdf_extractor import extract_caixa_data, extract_caixa_data_hits
+from stone_extractor import extract_vendas_stone
 
 app = Flask(__name__)
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///caixa_hotel.db')
@@ -69,6 +70,12 @@ class FechamentoCaixa(db.Model):
     movimento_num = db.Column(db.String(20))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     pdf_path = db.Column(db.String(256))
+    sistema_pms = db.Column(db.String(10), default='hmax')  # 'hmax' ou 'hits'
+    hits_stone_total = db.Column(db.Float, default=0.0)
+    hits_transferencia_bancaria = db.Column(db.Float, default=0.0)
+    hits_pix_cnpj = db.Column(db.Float, default=0.0)
+    hits_virada_sistema = db.Column(db.Float, default=0.0)
+    hits_total_caixa = db.Column(db.Float, default=0.0)
     tem_vendas_online = db.Column(db.Boolean, default=False)
     dinheiro_saida = db.Column(db.Float, default=0.0)
     dinheiro_encerramento = db.Column(db.Float, default=0.0)
@@ -158,6 +165,59 @@ class RateioCofre(db.Model):
     movimentacao_id = db.Column(db.Integer, db.ForeignKey('movimentacao_cofre.id'), nullable=False)
     unidade = db.Column(db.String(120), nullable=False)
     valor = db.Column(db.Float, default=0.0)
+
+
+class VendaStoneMensal(db.Model):
+    """Consolidado mensal de vendas da Stone, para cruzar com os
+    fechamentos de caixa do HITS (onde tudo, exceto dinheiro, passa pela
+    Stone)."""
+    id = db.Column(db.Integer, primary_key=True)
+    unidade = db.Column(db.String(120), nullable=False)
+    mes_ano = db.Column(db.String(7), nullable=False)  # 'AAAA-MM'
+    periodo_inicio = db.Column(db.String(20))
+    periodo_fim = db.Column(db.String(20))
+    razao_social = db.Column(db.String(200))
+    documento = db.Column(db.String(20))
+    total_vendido = db.Column(db.Float, default=0.0)
+    vendas_realizadas = db.Column(db.Integer, default=0)
+    ticket_medio = db.Column(db.Float, default=0.0)
+    canceladas = db.Column(db.Float, default=0.0)
+    contestadas = db.Column(db.Float, default=0.0)
+    devolvidos = db.Column(db.Float, default=0.0)
+    credito = db.Column(db.Float, default=0.0)
+    debito = db.Column(db.Float, default=0.0)
+    pix_maquininha = db.Column(db.Float, default=0.0)
+    voucher = db.Column(db.Float, default=0.0)
+    pdf_path = db.Column(db.String(256))
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploader = db.relationship('User', foreign_keys=[uploaded_by])
+
+    def total_stone(self):
+        return self.credito + self.debito + self.pix_maquininha
+
+    def mes_label(self):
+        try:
+            ano, mes = self.mes_ano.split('-')
+            meses = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+                     'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+            return meses[int(mes)] + '/' + ano
+        except Exception:
+            return self.mes_ano
+
+
+def mes_ano_de(data_str):
+    """Converte uma data 'DD/MM/AAAA' ou 'DD/MM/AA' em 'AAAA-MM'."""
+    if not data_str:
+        return None
+    try:
+        partes = data_str.strip().split('/')
+        mes, ano = partes[1], partes[2]
+        if len(ano) == 2:
+            ano = '20' + ano
+        return ano + '-' + mes.zfill(2)
+    except Exception:
+        return None
 
 
 def calcular_saldos():
@@ -287,12 +347,18 @@ def upload():
         except ValueError:
             vendas_online_valor = 0.0
         vendas_online_obs = request.form.get('vendas_online_obs', '')
+        sistema = request.form.get('sistema', 'hmax')
+        if sistema not in ('hmax', 'hits'):
+            sistema = 'hmax'
         if pdf_file and pdf_file.filename.lower().endswith('.pdf'):
             filename = secure_filename(datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + pdf_file.filename)
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             pdf_file.save(filepath)
             try:
-                data = extract_caixa_data(filepath)
+                if sistema == 'hits':
+                    data = extract_caixa_data_hits(filepath)
+                else:
+                    data = extract_caixa_data(filepath)
             except Exception as e:
                 flash('Erro ao processar PDF: ' + str(e), 'danger')
                 return redirect(request.url)
@@ -302,6 +368,7 @@ def upload():
                 quem_fechou=data.get('quem_fechou', ''),
                 movimento_num=data.get('movimento_num', ''),
                 pdf_path=filepath,
+                sistema_pms=sistema,
                 dinheiro_saida=data.get('dinheiro_saida', 0),
                 dinheiro_encerramento=data.get('dinheiro_encerramento', 0),
                 faturado=data.get('faturado', 0),
@@ -310,6 +377,11 @@ def upload():
                 cartao=data.get('cartao', 0),
                 cortesia=data.get('cortesia', 0),
                 cheque=data.get('cheque', 0),
+                hits_stone_total=data.get('hits_stone_total', 0),
+                hits_transferencia_bancaria=data.get('hits_transferencia_bancaria', 0),
+                hits_pix_cnpj=data.get('hits_pix_cnpj', 0),
+                hits_virada_sistema=data.get('hits_virada_sistema', 0),
+                hits_total_caixa=data.get('total_caixa', 0),
                 cofre_opcional=(
                     data.get('cofre_opcional', False)
                     or data.get('unidade', '') in UNIDADES_SEM_DINHEIRO_FISICO
@@ -668,6 +740,97 @@ def excluir_movimentacao(mov_id):
             emp.emprestimo_quitado = False
             emp.emprestimo_quitado_at = None
     db.session.delete(mov)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/stone/upload', methods=['GET', 'POST'])
+@login_required
+def stone_upload():
+    if current_user.role not in ['financeiro', 'admin']:
+        flash('Acesso nao autorizado.', 'danger')
+        return redirect(url_for('dashboard'))
+    if request.method == 'POST':
+        unidade = request.form.get('unidade', '')
+        if unidade not in UNIDADES:
+            flash('Selecione uma unidade valida.', 'danger')
+            return redirect(request.url)
+        if 'pdf' not in request.files or request.files['pdf'].filename == '':
+            flash('Nenhum arquivo selecionado.', 'danger')
+            return redirect(request.url)
+        pdf_file = request.files['pdf']
+        if not pdf_file.filename.lower().endswith('.pdf'):
+            flash('Arquivo invalido. Envie apenas .PDF', 'danger')
+            return redirect(request.url)
+        filename = secure_filename(datetime.now().strftime('%Y%m%d_%H%M%S') + '_stone_' + pdf_file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        pdf_file.save(filepath)
+        try:
+            data = extract_vendas_stone(filepath)
+        except Exception as e:
+            flash('Erro ao processar PDF: ' + str(e), 'danger')
+            return redirect(request.url)
+        mes_ano = mes_ano_de(data.get('periodo_inicio'))
+        if not mes_ano:
+            flash('Nao foi possivel identificar o periodo do relatorio.', 'danger')
+            return redirect(request.url)
+        venda = VendaStoneMensal.query.filter_by(unidade=unidade, mes_ano=mes_ano).first()
+        if not venda:
+            venda = VendaStoneMensal(unidade=unidade, mes_ano=mes_ano)
+            db.session.add(venda)
+        venda.periodo_inicio = data.get('periodo_inicio', '')
+        venda.periodo_fim = data.get('periodo_fim', '')
+        venda.razao_social = data.get('razao_social', '')
+        venda.documento = data.get('documento', '')
+        venda.total_vendido = data.get('total_vendido', 0)
+        venda.vendas_realizadas = data.get('vendas_realizadas', 0)
+        venda.ticket_medio = data.get('ticket_medio', 0)
+        venda.canceladas = data.get('canceladas', 0)
+        venda.contestadas = data.get('contestadas', 0)
+        venda.devolvidos = data.get('devolvidos', 0)
+        venda.credito = data.get('credito', 0)
+        venda.debito = data.get('debito', 0)
+        venda.pix_maquininha = data.get('pix_maquininha', 0)
+        venda.voucher = data.get('voucher', 0)
+        venda.pdf_path = filepath
+        venda.uploaded_by = current_user.id
+        db.session.commit()
+        flash('Relatorio da Stone (' + venda.mes_label() + ') salvo para ' + unidade + '!', 'success')
+        return redirect(url_for('stone_conciliacao'))
+    return render_template('stone_upload.html', unidades=UNIDADES)
+
+
+@app.route('/stone/conciliacao')
+@login_required
+def stone_conciliacao():
+    vendas = VendaStoneMensal.query.order_by(
+        VendaStoneMensal.mes_ano.desc(), VendaStoneMensal.unidade.asc()
+    ).all()
+    fechamentos_hits = FechamentoCaixa.query.filter_by(sistema_pms='hits').all()
+    agregados = {}
+    for fc in fechamentos_hits:
+        chave = (fc.unidade, mes_ano_de(fc.data_fechamento))
+        agregados[chave] = agregados.get(chave, 0.0) + (fc.hits_stone_total or 0.0)
+    linhas = []
+    for v in vendas:
+        stone_caixa = agregados.get((v.unidade, v.mes_ano), 0.0)
+        stone_relatorio = v.total_stone()
+        linhas.append({
+            'venda': v,
+            'stone_caixa': stone_caixa,
+            'stone_relatorio': stone_relatorio,
+            'diferenca': stone_relatorio - stone_caixa,
+        })
+    return render_template('stone_conciliacao.html', linhas=linhas)
+
+
+@app.route('/stone/<int:venda_id>/excluir', methods=['POST'])
+@login_required
+def excluir_venda_stone(venda_id):
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Nao autorizado'}), 403
+    venda = VendaStoneMensal.query.get_or_404(venda_id)
+    db.session.delete(venda)
     db.session.commit()
     return jsonify({'success': True})
 

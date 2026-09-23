@@ -78,6 +78,9 @@
     <a href="{{ url_for('upload') }}" class="nav-link {% if request.endpoint == 'upload' %}active{% endif %}">
       <i class="fas fa-upload"></i> Novo Fechamento
     </a>
+    <a href="{{ url_for('stone_conciliacao') }}" class="nav-link {% if request.endpoint in ['stone_conciliacao', 'stone_upload'] %}active{% endif %}">
+      <i class="fas fa-gem"></i> Vendas Stone
+    </a>
     {% endif %}
     {% if current_user.role == 'admin' %}
     <a href="{{ url_for('exportar_backup') }}" class="nav-link {% if request.endpoint == 'exportar_backup' %}active{% endif %}">

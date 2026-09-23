@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block title %}Conciliacao Stone{% endblock %}
+{% block page_title %}<i class="fas fa-gem me-2"></i>Conciliacao Vendas Stone x Caixa (HITS){% endblock %}
+
+{% block content %}
+<div class="card mb-4">
+  <div class="card-header py-3 d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>Como funciona</h6>
+    {% if current_user.role in ['financeiro', 'admin'] %}
+    <a href="{{ url_for('stone_upload') }}" class="btn btn-sm btn-light">
+      <i class="fas fa-plus me-1"></i>Novo Relatorio Stone
+    </a>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <p class="mb-0 text-muted" style="font-size:0.9rem">
+      No HITS, exceto dinheiro, tudo passa pela Stone (Mastercard/Visa credito e debito, Stone Pix).
+      Esta tela soma o total "Stone" de todos os fechamentos de caixa do HITS de uma unidade no mes,
+      e compara com o total (Credito + Debito + Pix na maquininha) do relatorio consolidado da Stone
+      daquele mesmo mes. Diferenca fora de uma pequena margem indica que algo precisa ser conferido.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead style="background:#f8f9fa;">
+          <tr>
+            <th class="px-3 py-2">Unidade</th>
+            <th class="py-2">Mes</th>
+            <th class="py-2">Periodo (Stone)</th>
+            <th class="py-2">Total Stone (relatorio)</th>
+            <th class="py-2">Total Stone (caixas HITS)</th>
+            <th class="py-2">Diferenca</th>
+            <th class="py-2">Acoes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in linhas %}
+          {% set dif = l.diferenca %}
+          <tr>
+            <td class="px-3 py-2 fw-semibold" style="font-size:0.88rem">{{ l.venda.unidade }}</td>
+            <td class="py-2" style="font-size:0.88rem">{{ l.venda.mes_label() }}</td>
+            <td class="py-2 text-muted" style="font-size:0.85rem">{{ l.venda.periodo_inicio }} a {{ l.venda.periodo_fim }}</td>
+            <td class="py-2" style="font-size:0.88rem">R$ {{ '%.2f'|format(l.stone_relatorio)|replace('.', ',') }}</td>
+            <td class="py-2" style="font-size:0.88rem">R$ {{ '%.2f'|format(l.stone_caixa)|replace('.', ',') }}</td>
+            <td class="py-2">
+              {% if dif > 1 or dif < -1 %}
+              <span class="badge bg-danger px-2 py-1">R$ {{ '%.2f'|format(dif)|replace('.', ',') }}</span>
+              {% else %}
+              <span class="badge bg-success px-2 py-1"><i class="fas fa-check me-1"></i>Bateu</span>
+              {% endif %}
+            </td>
+            <td class="py-2">
+              {% if current_user.role == 'admin' %}
+              <button onclick="excluirVenda({{ l.venda.id }})" class="btn btn-sm btn-outline-danger py-0 px-2" title="Excluir">
+                <i class="fas fa-trash"></i>
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-muted py-5">
+              <i class="fas fa-inbox fa-3x mb-3 d-block opacity-25"></i>
+              Nenhum relatorio da Stone cadastrado ainda.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function excluirVenda(id) {
+  if (!confirm('Excluir este relatorio da Stone? Esta acao nao pode ser desfeita.')) return;
+  fetch('/stone/' + id + '/excluir', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.success) location.reload();
+      else alert(data.error || 'Erro ao excluir');
+    });
+}
+</script>
+{% endblock %}

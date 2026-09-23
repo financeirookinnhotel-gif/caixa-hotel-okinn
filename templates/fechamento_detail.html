@@ -58,9 +58,50 @@
 
     <div class="card mb-4">
       <div class="card-header py-3">
-        <h6 class="mb-0"><i class="fas fa-coins me-2"></i>Valores Extraidos do PDF</h6>
+        <h6 class="mb-0"><i class="fas fa-coins me-2"></i>Valores Extraidos do PDF
+          {% if fc.sistema_pms == 'hits' %}<span class="badge bg-warning text-dark ms-1">HITS</span>{% endif %}
+        </h6>
       </div>
       <div class="card-body pb-2">
+        {% if fc.sistema_pms == 'hits' %}
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#f0fff4; border:1px solid #198754;">
+          <i class="fas fa-money-bill text-success"></i>
+          <span class="flex-1" style="font-size:0.9rem">Dinheiro{% if fc.cofre_opcional %} (recibo){% else %} (cofre){% endif %}</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.dinheiro_encerramento) }}</strong>
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#f0f4ff; border:1px solid #6f42c1">
+          <i class="fas fa-gem text-primary"></i>
+          <span class="flex-1" style="font-size:0.9rem">Stone (Mastercard/Visa credito e debito + Stone Pix)</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.hits_stone_total) }}</strong>
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#f8f9fa">
+          <i class="fas fa-file-invoice text-primary"></i>
+          <span class="flex-1" style="font-size:0.9rem">Faturado</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.faturado) }}</strong>
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#f8f9fa">
+          <i class="fas fa-university text-secondary"></i>
+          <span class="flex-1" style="font-size:0.9rem">Transferencia Bancaria</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.hits_transferencia_bancaria) }}</strong>
+        </div>
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#f8f9fa">
+          <i class="fas fa-qrcode text-info"></i>
+          <span class="flex-1" style="font-size:0.9rem">Pix CNPJ</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.hits_pix_cnpj) }}</strong>
+        </div>
+        {% if fc.hits_virada_sistema %}
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#f8f9fa">
+          <i class="fas fa-right-left text-muted"></i>
+          <span class="flex-1" style="font-size:0.9rem">Virada de Sistema (ja pago no Hmax)</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.hits_virada_sistema) }}</strong>
+        </div>
+        {% endif %}
+        <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded border border-dark" style="background:#e9ecef">
+          <i class="fas fa-calculator"></i>
+          <span class="flex-1 fw-semibold" style="font-size:0.9rem">Total do Caixa</span>
+          <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.hits_total_caixa) }}</strong>
+        </div>
+        {% else %}
         <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background:#fff8e1; border:1px solid #ffc107;">
           <span class="badge bg-warning text-dark" style="min-width:26px">4</span>
           <i class="fas fa-money-bill-alt text-warning"></i>
@@ -103,6 +144,7 @@
           <span class="flex-1" style="font-size:0.9rem">Cortesia</span>
           <strong style="color:#1a3a5c">R$ {{ '%.2f'|format(fc.cortesia) }}</strong>
         </div>
+        {% endif %}
         {% if fc.tem_vendas_online %}
         <div class="d-flex align-items-center gap-2 mb-2 p-2 rounded border border-primary" style="background:#f0f4ff">
           <span class="badge bg-primary" style="min-width:26px"><i class="fas fa-globe"></i></span>
@@ -172,6 +214,38 @@
         <small>Confira todos os valores. Itens sem check indicam divergencia.</small>
       </div>
       <div class="card-body">
+        {% if fc.sistema_pms == 'hits' %}
+        <div class="check-row" id="row-dinheiro_enc">
+          <input type="checkbox" class="custom-check check-field" data-field="dinheiro_enc" id="chk-dinheiro_enc">
+          <label class="label" for="chk-dinheiro_enc">Dinheiro</label>
+          <span class="valor">R$ {{ '%.2f'|format(fc.dinheiro_encerramento) }}</span>
+        </div>
+        <div class="check-row" id="row-cartao">
+          <input type="checkbox" class="custom-check check-field" data-field="cartao" id="chk-cartao">
+          <label class="label" for="chk-cartao">Stone (total)</label>
+          <span class="valor">R$ {{ '%.2f'|format(fc.hits_stone_total) }}</span>
+        </div>
+        <div class="check-row" id="row-faturado">
+          <input type="checkbox" class="custom-check check-field" data-field="faturado" id="chk-faturado">
+          <label class="label" for="chk-faturado">Faturado</label>
+          <span class="valor">R$ {{ '%.2f'|format(fc.faturado) }}</span>
+        </div>
+        <div class="check-row" id="row-deposito">
+          <input type="checkbox" class="custom-check check-field" data-field="deposito" id="chk-deposito">
+          <label class="label" for="chk-deposito">Transferencia Bancaria</label>
+          <span class="valor">R$ {{ '%.2f'|format(fc.hits_transferencia_bancaria) }}</span>
+        </div>
+        <div class="check-row" id="row-uso_credito">
+          <input type="checkbox" class="custom-check check-field" data-field="uso_credito" id="chk-uso_credito">
+          <label class="label" for="chk-uso_credito">Pix CNPJ</label>
+          <span class="valor">R$ {{ '%.2f'|format(fc.hits_pix_cnpj) }}</span>
+        </div>
+        <div class="check-row" id="row-cortesia">
+          <input type="checkbox" class="custom-check check-field" data-field="cortesia" id="chk-cortesia">
+          <label class="label" for="chk-cortesia">Total do Caixa</label>
+          <span class="valor">R$ {{ '%.2f'|format(fc.hits_total_caixa) }}</span>
+        </div>
+        {% else %}
         <div class="check-row" id="row-dinheiro_saida">
           <input type="checkbox" class="custom-check check-field" data-field="dinheiro_saida" id="chk-dinheiro_saida">
           <label class="label" for="chk-dinheiro_saida">4 · Dinheiro Saida (informativo)</label>
@@ -207,6 +281,7 @@
           <label class="label" for="chk-cortesia">10 · Cortesia</label>
           <span class="valor">R$ {{ '%.2f'|format(fc.cortesia) }}</span>
         </div>
+        {% endif %}
         {% if fc.tem_vendas_online %}
         <div class="check-row" id="row-vendas_online">
           <input type="checkbox" class="custom-check check-field" data-field="vendas_online" id="chk-vendas_online">
@@ -231,6 +306,22 @@
         <small>por {{ fc.financeiro_user.name if fc.financeiro_user else '-' }} em {{ fc.financeiro_at.strftime('%d/%m/%Y %H:%M') }}</small>
       </div>
       <div class="card-body">
+        {% if fc.sistema_pms == 'hits' %}
+        {% for label, val, checked in [
+          ('Dinheiro', fc.dinheiro_encerramento, fc.financeiro_check_dinheiro),
+          ('Stone (total)', fc.hits_stone_total, fc.financeiro_check_cartao),
+          ('Faturado', fc.faturado, fc.financeiro_check_faturado),
+          ('Transferencia Bancaria', fc.hits_transferencia_bancaria, fc.financeiro_check_deposito),
+          ('Pix CNPJ', fc.hits_pix_cnpj, fc.financeiro_check_uso_credito),
+          ('Total do Caixa', fc.hits_total_caixa, fc.financeiro_check_cortesia),
+        ] %}
+        <div class="check-row {{ 'has-check' if checked else 'no-check' }}">
+          <span style="font-size:1.2rem">{{ '✅' if checked else '❌' }}</span>
+          <span class="label">{{ label }}</span>
+          <span class="valor">R$ {{ '%.2f'|format(val) }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
         {% for label, val, checked in [
           ('4 · Dinheiro Saida', fc.dinheiro_saida, fc.financeiro_check_dinheiro),
           ('5 · Dinheiro Encerramento', fc.dinheiro_encerramento, fc.financeiro_check_dinheiro),
@@ -246,6 +337,7 @@
           <span class="valor">R$ {{ '%.2f'|format(val) }}</span>
         </div>
         {% endfor %}
+        {% endif %}
         {% if fc.tem_vendas_online %}
         <div class="check-row {{ 'has-check' if fc.financeiro_check_vendas_online else 'no-check' }}">
           <span style="font-size:1.2rem">{{ '✅' if fc.financeiro_check_vendas_online else '❌' }}</span>

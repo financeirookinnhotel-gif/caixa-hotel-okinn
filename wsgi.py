@@ -15,6 +15,12 @@ with app.app_context():
                 'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS cheque FLOAT DEFAULT 0.0',
                 'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS cofre_opcional BOOLEAN DEFAULT FALSE',
                 'ALTER TABLE movimentacao_cofre ADD COLUMN IF NOT EXISTS grupo_id VARCHAR(50)',
+                "ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS sistema_pms VARCHAR(10) DEFAULT 'hmax'",
+                'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS hits_stone_total FLOAT DEFAULT 0.0',
+                'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS hits_transferencia_bancaria FLOAT DEFAULT 0.0',
+                'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS hits_pix_cnpj FLOAT DEFAULT 0.0',
+                'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS hits_virada_sistema FLOAT DEFAULT 0.0',
+                'ALTER TABLE fechamento_caixa ADD COLUMN IF NOT EXISTS hits_total_caixa FLOAT DEFAULT 0.0',
             ]
             for sql in migracoes:
                 try:

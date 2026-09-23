@@ -16,6 +16,8 @@ ALIAS_FECHADORES = {
 UNIDADE_MAP = {
     'OK INN HOTEL TUBARAO': 'Ok Inn Tubarao',
     'OK INN HOTEL TUBARÃO': 'Ok Inn Tubarao',
+    'OK INN HOTEL TUBARAO EXPRESS': 'Ok Inn Express Tubarao',
+    'OK INN HOTEL TUBARÃO EXPRESS': 'Ok Inn Express Tubarao',
     'OK INN EXPRESS TUBARAO': 'Ok Inn Express Tubarao',
     'OK INN EXPRESS TUBARÃO': 'Ok Inn Express Tubarao',
     'OK INN HOTEL EXPRESS': 'Ok Inn Express Tubarao',
@@ -47,7 +49,7 @@ UNIDADE_MAP = {
 def normalizar_valor(val_str):
     if not val_str:
         return 0.0
-    val_str = val_str.strip().replace('R$', '').replace(' ', '')
+    val_str = val_str.strip().replace('R$', '').replace('$', '').replace(' ', '')
     val_str = val_str.replace('.', '').replace(',', '.')
     try:
         return float(val_str)
@@ -57,10 +59,17 @@ def normalizar_valor(val_str):
 
 def resolver_unidade(texto):
     texto_upper = texto.upper().strip()
+    # Prefere a chave mais especifica (mais longa) que casar, para que um
+    # nome generico (ex.: "OK INN HOTEL TUBARAO") nao "roube" o casamento
+    # de um nome mais completo que tambem contem esse prefixo (ex.: "OK INN
+    # HOTEL TUBARAO EXPRESS").
+    melhor_chave = None
+    melhor_valor = None
     for key, val in UNIDADE_MAP.items():
-        if key in texto_upper:
-            return val
-    return None
+        if key in texto_upper and (melhor_chave is None or len(key) > len(melhor_chave)):
+            melhor_chave = key
+            melhor_valor = val
+    return melhor_valor
 
 
 def resolver_fechador(nome):
@@ -270,5 +279,92 @@ def extract_caixa_data(pdf_path):
     uc_pat = re.compile(r'MOVIMENTO\s+\d+\s+([\d.,]+)\s+Uso', re.IGNORECASE)
     for m in uc_pat.finditer(full_text):
         result['uso_credito'] = normalizar_valor(m.group(1))
+
+    return result
+
+
+# ─── Extrator do sistema HITS (novo PMS, substituindo o HMAX aos poucos) ──
+
+def _parse_resumo_caixa_hits(tabela):
+    """Le a tabela 'Resumo do caixa' do HITS e retorna {tipo_pagamento: total}.
+
+    Cada linha da tabela tem o tipo de pagamento na 1a celula (pode vir
+    quebrado em varias linhas dentro da mesma celula, ex.: 'STONE\\nVISA\\n
+    CREDITO') e o valor "Total" na ultima celula. Usa extract_tables() em
+    vez de regex sobre o texto porque o pdfplumber ja separa as colunas
+    corretamente aqui (ao contrario do HMAX, que exige truque de posicao).
+    """
+    totais = {}
+    dentro_da_secao = False
+    for row in tabela:
+        label_cell = row[0] or ''
+        if 'Tipo de Pagto' in label_cell:
+            dentro_da_secao = True
+            continue
+        if not dentro_da_secao:
+            continue
+        label = ' '.join(label_cell.split()).upper()
+        if not label or label in ('SUB TOTAL', 'TOTAL DO CAIXA'):
+            break
+        total_cell = None
+        for cell in reversed(row):
+            if cell and any(c.isdigit() for c in cell):
+                total_cell = cell
+                break
+        if total_cell:
+            totais[label] = totais.get(label, 0.0) + normalizar_valor(total_cell)
+    return totais
+
+
+CAIXA_HITS_HEADER_RE = re.compile(
+    r'#(\d+)\s+\S+\s+(\d{2}/\d{2}/\d{4})\s+\d{2}:\d{2}\s+(.+?)\s+'
+    r'(\d{2}/\d{2}/\d{4})\s+\d{2}:\d{2}\s+(.+?)\s+\$([\d.,]+)',
+    re.IGNORECASE
+)
+
+
+def extract_caixa_data_hits(pdf_path):
+    result = {
+        'unidade': '',
+        'data_fechamento': '',
+        'quem_fechou': '',
+        'movimento_num': '',
+        'dinheiro_encerramento': 0.0,
+        'faturado': 0.0,
+        'hits_stone_total': 0.0,
+        'hits_transferencia_bancaria': 0.0,
+        'hits_pix_cnpj': 0.0,
+        'hits_virada_sistema': 0.0,
+        'total_caixa': 0.0,
+        'cofre_opcional': False,
+    }
+
+    with pdfplumber.open(pdf_path) as pdf:
+        first_page = pdf.pages[0]
+        full_text = first_page.extract_text() or ''
+        lines = [l for l in full_text.split('\n') if l.strip()]
+
+        if lines:
+            result['unidade'] = resolver_unidade(lines[0]) or ''
+        result['cofre_opcional'] = result['unidade'] in UNIDADES_SEM_COFRE_FIXO
+
+        header_match = CAIXA_HITS_HEADER_RE.search(full_text)
+        if header_match:
+            result['movimento_num'] = header_match.group(1)
+            result['data_fechamento'] = header_match.group(4)
+            result['quem_fechou'] = resolver_fechador(header_match.group(5))
+            result['total_caixa'] = normalizar_valor(header_match.group(6))
+
+        tabelas = first_page.extract_tables()
+        totais = {}
+        for tabela in tabelas:
+            totais.update(_parse_resumo_caixa_hits(tabela))
+
+    result['dinheiro_encerramento'] = totais.get('DINHEIRO', 0.0)
+    result['faturado'] = totais.get('FATURADO', 0.0)
+    result['hits_transferencia_bancaria'] = totais.get('TRANSFERENCIA BANCARIA', 0.0)
+    result['hits_pix_cnpj'] = totais.get('PIX CNPJ', 0.0)
+    result['hits_virada_sistema'] = totais.get('VIRADA DE SISTEMA', 0.0)
+    result['hits_stone_total'] = sum(v for k, v in totais.items() if 'STONE' in k)
 
     return result

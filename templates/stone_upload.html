@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block title %}Upload Vendas Stone{% endblock %}
+{% block page_title %}<i class="fas fa-gem me-2"></i>Upload de Relatorio Stone{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header py-3">
+        <h6 class="mb-0"><i class="fas fa-file-pdf me-2"></i>Relatorio "Resumo de vendas" (consolidado mensal)</h6>
+      </div>
+      <div class="card-body p-4">
+        <div class="alert alert-info">
+          <i class="fas fa-info-circle me-2"></i>
+          Envie o PDF de consolidado de vendas da Stone (um por mes por unidade). O sistema guarda o
+          historico e cruza automaticamente com os fechamentos de caixa do HITS dessa unidade no mesmo mes.
+        </div>
+        <form method="POST" enctype="multipart/form-data" id="stoneForm">
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Unidade</label>
+            <select name="unidade" class="form-select" required>
+              <option value="">Selecione...</option>
+              {% for u in unidades %}
+              <option value="{{ u }}">{{ u }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-4">
+            <label class="form-label fw-semibold">Arquivo PDF do Relatorio Stone</label>
+            <div class="rounded-3 p-4 text-center" id="dropzone"
+                 style="border: 2px dashed #adb5bd; cursor: pointer; transition: all 0.2s;">
+              <i class="fas fa-cloud-upload-alt fa-3x text-muted mb-3 d-block"></i>
+              <p class="mb-1 fw-semibold">Arraste o PDF aqui ou clique para selecionar</p>
+              <p class="text-muted mb-3" style="font-size: 0.85rem;">Apenas arquivos .PDF</p>
+              <input type="file" name="pdf" id="pdfInput" accept=".pdf" class="d-none" required>
+              <button type="button" class="btn btn-outline-primary btn-sm"
+                      onclick="document.getElementById('pdfInput').click()">
+                <i class="fas fa-folder-open me-1"></i>Selecionar Arquivo
+              </button>
+              <div id="fileSelected" class="mt-3 d-none">
+                <span class="badge bg-success px-3 py-2">
+                  <i class="fas fa-check me-1"></i><span id="fileName"></span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+              <i class="fas fa-magic me-2"></i>Processar Relatorio
+            </button>
+            <a href="{{ url_for('stone_conciliacao') }}" class="btn btn-outline-secondary">
+              <i class="fas fa-arrow-left me-1"></i>Ver Conciliacao
+            </a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const pdfInput = document.getElementById('pdfInput');
+const fileSelected = document.getElementById('fileSelected');
+const fileName = document.getElementById('fileName');
+const dropzone = document.getElementById('dropzone');
+const submitBtn = document.getElementById('submitBtn');
+pdfInput.addEventListener('change', function() {
+  if (this.files[0]) {
+    fileName.textContent = this.files[0].name;
+    fileSelected.classList.remove('d-none');
+    dropzone.style.borderColor = '#198754';
+  }
+});
+dropzone.addEventListener('dragover', function(e) {
+  e.preventDefault();
+  dropzone.style.borderColor = '#2563a8';
+  dropzone.style.background = '#f0f4ff';
+});
+dropzone.addEventListener('dragleave', function() {
+  dropzone.style.borderColor = '#adb5bd';
+  dropzone.style.background = '';
+});
+dropzone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.pdf')) {
+    pdfInput.files = e.dataTransfer.files;
+    fileName.textContent = file.name;
+    fileSelected.classList.remove('d-none');
+    dropzone.style.borderColor = '#198754';
+    dropzone.style.background = '';
+  }
+});
+document.getElementById('stoneForm').addEventListener('submit', function() {
+  submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processando...';
+  submitBtn.disabled = true;
+});
+</script>
+{% endblock %}

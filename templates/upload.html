@@ -12,6 +12,20 @@
       <div class="card-body p-4">
         <form method="POST" enctype="multipart/form-data" id="uploadForm">
           <div class="mb-4">
+            <label class="form-label fw-semibold">Sistema (PMS)</label>
+            <div class="btn-group w-100" role="group">
+              <input type="radio" class="btn-check" name="sistema" id="sistemaHmax" value="hmax" checked>
+              <label class="btn btn-outline-primary" for="sistemaHmax">
+                <i class="fas fa-database me-1"></i>Hmax
+              </label>
+              <input type="radio" class="btn-check" name="sistema" id="sistemaHits" value="hits">
+              <label class="btn btn-outline-primary" for="sistemaHits">
+                <i class="fas fa-bolt me-1"></i>Hits
+              </label>
+            </div>
+            <small class="text-muted">Escolha o PMS que gerou este PDF de fechamento</small>
+          </div>
+          <div class="mb-4">
             <label class="form-label fw-semibold">Arquivo PDF do Fechamento</label>
             <div class="rounded-3 p-4 text-center" id="dropzone"
                  style="border: 2px dashed #adb5bd; cursor: pointer; transition: all 0.2s;">
