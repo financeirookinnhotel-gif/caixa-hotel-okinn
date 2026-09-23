@@ -816,24 +816,35 @@ def stone_transacoes():
         except Exception as e:
             flash('Erro ao processar CSV: ' + str(e), 'danger')
             return redirect(request.url)
+        # Busca todos os existentes de uma vez (1 query) em vez de um
+        # SELECT por linha — com quase mil linhas por planilha, consultar
+        # uma a uma (e o autoflush disparando a cada iteracao) estourava o
+        # timeout do gunicorn contra o Postgres do Render.
+        stone_ids = [linha['stone_id'] for linha in linhas]
+        existentes = {
+            t.stone_id: t
+            for t in TransacaoStone.query.filter(TransacaoStone.stone_id.in_(stone_ids)).all()
+        } if stone_ids else {}
         novas, atualizadas = 0, 0
-        for linha in linhas:
-            t = TransacaoStone.query.filter_by(stone_id=linha['stone_id']).first()
-            if not t:
-                t = TransacaoStone(stone_id=linha['stone_id'])
-                db.session.add(t)
-                novas += 1
-            else:
-                atualizadas += 1
-            t.documento = linha['documento']
-            t.stonecode = linha['stonecode']
-            t.data_venda = linha['data_venda']
-            t.bandeira = linha['bandeira']
-            t.produto = linha['produto']
-            t.valor_bruto = linha['valor_bruto']
-            t.valor_liquido = linha['valor_liquido']
-            t.codigo_autorizacao = linha['codigo_autorizacao']
-            t.uploaded_by = current_user.id
+        with db.session.no_autoflush:
+            for linha in linhas:
+                t = existentes.get(linha['stone_id'])
+                if not t:
+                    t = TransacaoStone(stone_id=linha['stone_id'])
+                    db.session.add(t)
+                    existentes[linha['stone_id']] = t
+                    novas += 1
+                else:
+                    atualizadas += 1
+                t.documento = linha['documento']
+                t.stonecode = linha['stonecode']
+                t.data_venda = linha['data_venda']
+                t.bandeira = linha['bandeira']
+                t.produto = linha['produto']
+                t.valor_bruto = linha['valor_bruto']
+                t.valor_liquido = linha['valor_liquido']
+                t.codigo_autorizacao = linha['codigo_autorizacao']
+                t.uploaded_by = current_user.id
         db.session.commit()
         flash(f'{novas} transacoes novas e {atualizadas} atualizadas importadas da Stone!', 'success')
         return redirect(url_for('stone_transacoes'))
