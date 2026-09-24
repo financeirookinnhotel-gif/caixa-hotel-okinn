@@ -416,7 +416,16 @@ def extract_caixa_data_hits(pdf_path):
         for page in pdf.pages[1:]:
             texto_todas_paginas += '\n' + (page.extract_text() or '')
 
-    result['dinheiro_encerramento'] = totais.get('DINHEIRO', 0.0)
+    # O "Documento avulso" da linha DINHEIRO no resumo inclui o fundo de
+    # caixa (dinheiro que ja estava na gaveta, nao e venda nova) somado ao
+    # total. O fundo de caixa aparece detalhado na secao "Documentos" do
+    # log, ex.: "DINHEIRO - fundo de caixa $424,00" — subtrai isso do
+    # Dinheiro para nao inflar o valor que vai para o cofre.
+    fundo_caixa_re = re.compile(r'DINHEIRO\s*-\s*fundo de caixa\s+\$([\d.,]+)', re.IGNORECASE)
+    fundo_caixa_total = sum(
+        normalizar_valor(m.group(1)) for m in fundo_caixa_re.finditer(texto_todas_paginas)
+    )
+    result['dinheiro_encerramento'] = totais.get('DINHEIRO', 0.0) - fundo_caixa_total
     result['faturado'] = totais.get('FATURADO', 0.0)
     result['hits_transferencia_bancaria'] = totais.get('TRANSFERENCIA BANCARIA', 0.0)
     result['hits_pix_cnpj'] = totais.get('PIX CNPJ', 0.0)
