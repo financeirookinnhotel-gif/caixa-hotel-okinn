@@ -461,7 +461,19 @@ def fechamento_detail(fc_id):
             {'transacao': t, 'match': t.stone_match()}
             for t in fc.transacoes_cartao
         ]
-    return render_template('fechamento_detail.html', fc=fc, cruzamento_cartao=cruzamento_cartao)
+    # Motivo de pular o cofre: unidades sem dinheiro fisico usam recibo;
+    # fechamentos do Hits nao enviam dinheiro ao cofre por esse sistema.
+    if fc.cofre_opcional:
+        sem_cofre_motivo = 'recibo'
+    elif fc.sistema_pms == 'hits':
+        sem_cofre_motivo = 'hits'
+    else:
+        sem_cofre_motivo = None
+    return render_template(
+        'fechamento_detail.html', fc=fc,
+        cruzamento_cartao=cruzamento_cartao,
+        sem_cofre_motivo=sem_cofre_motivo,
+    )
 
 
 @app.route('/fechamento/<int:fc_id>/excluir', methods=['POST'])
@@ -512,6 +524,8 @@ def diretor_check(fc_id):
     if fc.unidade in UNIDADES_SEM_DINHEIRO_FISICO:
         enviar_cofre = False
         fc.cofre_opcional = True
+    if fc.sistema_pms == 'hits':
+        enviar_cofre = False
     if enviar_cofre:
         fc.status = 'aguardando_cofre'
     else:

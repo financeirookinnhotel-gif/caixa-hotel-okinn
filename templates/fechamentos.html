@@ -36,6 +36,14 @@
     </select>
   </div>
   <div>
+    <label class="form-label fw-semibold mb-1" style="font-size:0.82rem">Sistema</label>
+    <select id="filtroSistema" class="form-select form-select-sm">
+      <option value="">Todos</option>
+      <option value="hmax">Hmax</option>
+      <option value="hits">Hits</option>
+    </select>
+  </div>
+  <div>
     <label class="form-label fw-semibold mb-1" style="font-size:0.82rem">Data Inicio</label>
     <input type="date" id="filtroDataInicio" class="form-control form-control-sm">
   </div>
@@ -81,12 +89,13 @@
             <th class="py-2">Faturado</th>
             <th class="py-2">Deposito</th>
             <th class="py-2">Status</th>
+            <th class="py-2">Sistema</th>
             <th class="py-2">Acoes</th>
           </tr>
         </thead>
         <tbody id="tbodyFechamentos">
           {% for fc in fechamentos %}
-          <tr data-unidade="{{ fc.unidade }}" data-status="{{ fc.status }}" data-data="{{ fc.data_fechamento }}">
+          <tr data-unidade="{{ fc.unidade }}" data-status="{{ fc.status }}" data-data="{{ fc.data_fechamento }}" data-sistema="{{ fc.sistema_pms }}">
             <td class="px-3 py-2 text-muted" style="font-size:0.82rem">{{ loop.index }}</td>
             <td class="py-2 fw-semibold" style="font-size:0.85rem">#{{ fc.movimento_num }}</td>
             <td class="py-2 fw-semibold" style="font-size:0.85rem">{{ fc.unidade }}</td>
@@ -99,6 +108,11 @@
             <td class="py-2">
               <span class="badge badge-{{ fc.status }} px-2 py-1" style="font-size:0.72rem">
                 {{ fc.status_label() }}
+              </span>
+            </td>
+            <td class="py-2">
+              <span class="badge {{ 'bg-warning text-dark' if fc.sistema_pms == 'hits' else 'bg-secondary' }} px-2 py-1" style="font-size:0.72rem">
+                {{ fc.sistema_pms|upper }}
               </span>
             </td>
             <td class="py-2">
@@ -124,7 +138,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="11" class="text-center text-muted py-5">
+            <td colspan="12" class="text-center text-muted py-5">
               <i class="fas fa-inbox fa-3x mb-3 d-block opacity-25"></i>
               Nenhum fechamento registrado ainda.
             </td>
@@ -162,6 +176,7 @@ function salvarFiltros() {
   var estado = {
     unidade: document.getElementById('filtroUnidade').value,
     status: document.getElementById('filtroStatus').value,
+    sistema: document.getElementById('filtroSistema').value,
     dataInicio: document.getElementById('filtroDataInicio').value,
     dataFim: document.getElementById('filtroDataFim').value,
     ocultandoConcluidos: ocultandoConcluidos
@@ -187,6 +202,7 @@ function restaurarFiltros() {
   }
   document.getElementById('filtroUnidade').value    = estado.unidade || '';
   document.getElementById('filtroStatus').value     = estado.status || '';
+  document.getElementById('filtroSistema').value    = estado.sistema || '';
   document.getElementById('filtroDataInicio').value = estado.dataInicio || '';
   document.getElementById('filtroDataFim').value    = estado.dataFim || '';
   ocultandoConcluidos = !!estado.ocultandoConcluidos;
@@ -200,6 +216,7 @@ function restaurarFiltros() {
 function filtrar() {
   var unidade  = document.getElementById('filtroUnidade').value;
   var status   = document.getElementById('filtroStatus').value;
+  var sistema  = document.getElementById('filtroSistema').value;
   var dtIni    = parseDataInput(document.getElementById('filtroDataInicio').value);
   var dtFim    = parseDataInput(document.getElementById('filtroDataFim').value);
   var rows     = document.querySelectorAll('#tbodyFechamentos tr[data-unidade]');
@@ -211,6 +228,7 @@ function filtrar() {
 
     if (unidade && tr.dataset.unidade !== unidade) show = false;
     if (status  && tr.dataset.status  !== status)  show = false;
+    if (sistema && tr.dataset.sistema !== sistema) show = false;
     if (dtIni   && d && d < dtIni) show = false;
     if (dtFim   && d && d > dtFim) show = false;
     if (ocultandoConcluidos && tr.dataset.status === 'concluido') show = false;
@@ -226,6 +244,7 @@ function filtrar() {
 function limparFiltros() {
   document.getElementById('filtroUnidade').value    = '';
   document.getElementById('filtroStatus').value     = '';
+  document.getElementById('filtroSistema').value    = '';
   document.getElementById('filtroDataInicio').value = '';
   document.getElementById('filtroDataFim').value    = '';
   try { sessionStorage.removeItem(FILTROS_STORAGE_KEY); } catch (e) {}
