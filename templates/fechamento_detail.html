@@ -37,7 +37,23 @@
       </div>
       <div class="card-body">
         <table class="table table-sm table-borderless mb-0">
-          <tr><td class="text-muted" style="width:140px">Unidade</td><td class="fw-semibold">{{ fc.unidade }}</td></tr>
+          <tr>
+            <td class="text-muted" style="width:140px">Unidade</td>
+            <td class="fw-semibold">
+              <span id="unidadeTexto">{{ fc.unidade }}</span>
+              {% if current_user.role == 'admin' %}
+              <a href="#" onclick="event.preventDefault(); toggleEditUnidade();" title="Corrigir unidade" class="ms-1"><i class="fas fa-pen text-muted" style="font-size:0.8rem"></i></a>
+              <div id="editUnidade" class="d-none mt-1">
+                <select id="selectUnidade" class="form-select form-select-sm d-inline-block" style="width:auto">
+                  {% for u in unidades %}
+                  <option value="{{ u }}" {{ 'selected' if u == fc.unidade else '' }}>{{ u }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-primary" onclick="salvarUnidade()">Salvar</button>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
           <tr><td class="text-muted">Data Fechamento</td><td>{{ fc.data_fechamento }}</td></tr>
           <tr><td class="text-muted">Fechado por</td><td>{{ fc.quem_fechou }}</td></tr>
           <tr><td class="text-muted">Movimento</td><td>{{ fc.movimento_num }}</td></tr>
@@ -482,6 +498,21 @@ function showToast(msg, type) {
   t.innerHTML = '<i class="fas fa-check-circle me-2"></i>' + msg;
   c.appendChild(t);
   setTimeout(function() { t.remove(); }, 3500);
+}
+
+function toggleEditUnidade() {
+  document.getElementById('editUnidade').classList.toggle('d-none');
+}
+
+function salvarUnidade() {
+  var unidade = document.getElementById('selectUnidade').value;
+  fetch('/fechamento/{{ fc.id }}/corrigir-unidade', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({unidade: unidade})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success) { showToast('Unidade corrigida!'); setTimeout(function() { location.reload(); }, 1000); }
+    else showToast(d.error || 'Erro', 'danger');
+  });
 }
 
 function salvarFinanceiro() {

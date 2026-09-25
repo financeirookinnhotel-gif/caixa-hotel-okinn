@@ -479,6 +479,7 @@ def fechamento_detail(fc_id):
         'fechamento_detail.html', fc=fc,
         cruzamento_cartao=cruzamento_cartao,
         sem_cofre_motivo=sem_cofre_motivo,
+        unidades=UNIDADES,
     )
 
 
@@ -489,6 +490,24 @@ def excluir_fechamento(fc_id):
         return jsonify({'error': 'Nao autorizado'}), 403
     fc = FechamentoCaixa.query.get_or_404(fc_id)
     db.session.delete(fc)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/fechamento/<int:fc_id>/corrigir-unidade', methods=['POST'])
+@login_required
+def corrigir_unidade(fc_id):
+    """Corrige a unidade de um fechamento ja salvo, para os casos em que o
+    PDF foi lido com a unidade errada (ex.: mapeamento de nome do hotel
+    desatualizado) e o fechamento ja tinha sido processado antes do fix."""
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Nao autorizado'}), 403
+    fc = FechamentoCaixa.query.get_or_404(fc_id)
+    data = request.json
+    nova_unidade = data.get('unidade', '')
+    if nova_unidade not in UNIDADES:
+        return jsonify({'error': 'Unidade invalida'}), 400
+    fc.unidade = nova_unidade
     db.session.commit()
     return jsonify({'success': True})
 
