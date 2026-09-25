@@ -1,6 +1,15 @@
+import logging
 import pdfplumber
 import re
 from itertools import groupby
+
+# Alguns PDFs do HITS tem fontes com descritor malformado (FontBBox
+# invalido). O pdfminer (usado pelo pdfplumber por baixo dos panos) loga
+# um aviso para cada ocorrencia — em paginas com muito texto isso emite
+# milhares de linhas e chega a dobrar o tempo de extract_text(). Como o
+# fallback do pdfminer ja lida com isso sem quebrar a extracao, so
+# silenciamos o log (nao muda o resultado, so a performance).
+logging.getLogger('pdfminer').setLevel(logging.ERROR)
 
 ALIAS_FECHADORES = {
     'EDEM': 'EDEMILSON',
