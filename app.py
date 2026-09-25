@@ -12,6 +12,12 @@ app = Flask(__name__)
 database_url = os.environ.get('DATABASE_URL', 'sqlite:///caixa_hotel.db')
 if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
+if database_url.startswith('postgresql://'):
+    # Forca o driver psycopg2 (instalado via requirements.txt) explicitamente.
+    # Sem isso, versoes mais novas do SQLAlchemy tentam o driver "psycopg"
+    # (v3) por padrao quando a URL nao especifica driver, e esse pacote
+    # nao esta instalado — o app nem sobe (ModuleNotFoundError: psycopg).
+    database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
