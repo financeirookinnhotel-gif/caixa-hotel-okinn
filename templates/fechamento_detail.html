@@ -264,34 +264,14 @@
         {% if fc.sistema_pms == 'hits' %}
         <div class="check-row" id="row-dinheiro_enc">
           <input type="checkbox" class="custom-check check-field" data-field="dinheiro_enc" id="chk-dinheiro_enc">
-          <label class="label" for="chk-dinheiro_enc">Dinheiro</label>
+          <label class="label" for="chk-dinheiro_enc">Dinheiro (ja sem fundo de caixa)</label>
           <span class="valor">R$ {{ '%.2f'|format(fc.dinheiro_encerramento) }}</span>
         </div>
-        <div class="check-row" id="row-cartao">
-          <input type="checkbox" class="custom-check check-field" data-field="cartao" id="chk-cartao">
-          <label class="label" for="chk-cartao">Stone (total)</label>
-          <span class="valor">R$ {{ '%.2f'|format(fc.hits_stone_total) }}</span>
-        </div>
-        <div class="check-row" id="row-faturado">
-          <input type="checkbox" class="custom-check check-field" data-field="faturado" id="chk-faturado">
-          <label class="label" for="chk-faturado">Faturado</label>
-          <span class="valor">R$ {{ '%.2f'|format(fc.faturado) }}</span>
-        </div>
-        <div class="check-row" id="row-deposito">
-          <input type="checkbox" class="custom-check check-field" data-field="deposito" id="chk-deposito">
-          <label class="label" for="chk-deposito">Transferencia Bancaria</label>
-          <span class="valor">R$ {{ '%.2f'|format(fc.hits_transferencia_bancaria) }}</span>
-        </div>
-        <div class="check-row" id="row-uso_credito">
-          <input type="checkbox" class="custom-check check-field" data-field="uso_credito" id="chk-uso_credito">
-          <label class="label" for="chk-uso_credito">Pix CNPJ</label>
-          <span class="valor">R$ {{ '%.2f'|format(fc.hits_pix_cnpj) }}</span>
-        </div>
-        <div class="check-row" id="row-cortesia">
-          <input type="checkbox" class="custom-check check-field" data-field="cortesia" id="chk-cortesia">
-          <label class="label" for="chk-cortesia">Total do Caixa</label>
-          <span class="valor">R$ {{ '%.2f'|format(fc.hits_total_caixa) }}</span>
-        </div>
+        <small class="text-muted d-block mt-2">
+          Stone, Faturado, Transferencia Bancaria, Pix CNPJ e Virada de Sistema nao entram na
+          conferencia — o cartao ja e cruzado automaticamente por STONE ID acima, e os demais ficam
+          so como informativo (veja o quadro "Valores Extraidos do PDF").
+        </small>
         {% else %}
         <div class="check-row" id="row-dinheiro_saida">
           <input type="checkbox" class="custom-check check-field" data-field="dinheiro_saida" id="chk-dinheiro_saida">
@@ -354,20 +334,11 @@
       </div>
       <div class="card-body">
         {% if fc.sistema_pms == 'hits' %}
-        {% for label, val, checked in [
-          ('Dinheiro', fc.dinheiro_encerramento, fc.financeiro_check_dinheiro),
-          ('Stone (total)', fc.hits_stone_total, fc.financeiro_check_cartao),
-          ('Faturado', fc.faturado, fc.financeiro_check_faturado),
-          ('Transferencia Bancaria', fc.hits_transferencia_bancaria, fc.financeiro_check_deposito),
-          ('Pix CNPJ', fc.hits_pix_cnpj, fc.financeiro_check_uso_credito),
-          ('Total do Caixa', fc.hits_total_caixa, fc.financeiro_check_cortesia),
-        ] %}
-        <div class="check-row {{ 'has-check' if checked else 'no-check' }}">
-          <span style="font-size:1.2rem">{{ '✅' if checked else '❌' }}</span>
-          <span class="label">{{ label }}</span>
-          <span class="valor">R$ {{ '%.2f'|format(val) }}</span>
+        <div class="check-row {{ 'has-check' if fc.financeiro_check_dinheiro else 'no-check' }}">
+          <span style="font-size:1.2rem">{{ '✅' if fc.financeiro_check_dinheiro else '❌' }}</span>
+          <span class="label">Dinheiro (ja sem fundo de caixa)</span>
+          <span class="valor">R$ {{ '%.2f'|format(fc.dinheiro_encerramento) }}</span>
         </div>
-        {% endfor %}
         {% else %}
         {% for label, val, checked in [
           ('4 · Dinheiro Saida', fc.dinheiro_saida, fc.financeiro_check_dinheiro),
