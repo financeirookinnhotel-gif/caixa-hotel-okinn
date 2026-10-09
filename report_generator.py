@@ -14,7 +14,7 @@ def fmt_valor(val):
     return 'R$ {:,.2f}'.format(val).replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
-def gerar_pdf_relatorio(fc, financeiro_user, diretor_user):
+def gerar_pdf_relatorio(fc, financeiro_user, diretor_user, cruzamento=None):
     os.makedirs('relatorios', exist_ok=True)
     path = 'relatorios/relatorio_fc_' + str(fc.id) + '_' + datetime.now().strftime('%Y%m%d%H%M%S') + '.pdf'
 
@@ -47,6 +47,7 @@ def gerar_pdf_relatorio(fc, financeiro_user, diretor_user):
         ['Data de Fechamento', fc.data_fechamento],
         ['Fechado por', fc.quem_fechou],
         ['Movimento No', str(fc.movimento_num)],
+        ['Sistema', (fc.sistema_pms or 'hmax').upper()],
         ['Status', fc.status_label()],
         ['Upload em', fc.created_at.strftime('%d/%m/%Y %H:%M') if fc.created_at else '-'],
     ]
@@ -63,46 +64,99 @@ def gerar_pdf_relatorio(fc, financeiro_user, diretor_user):
     story.append(Spacer(1, 0.4*cm))
 
     story.append(Paragraph('VALORES DO CAIXA', section_style))
-    fin_din = 'SIM' if fc.financeiro_check_dinheiro else 'NAO'
-    dir_din = 'SIM' if fc.diretor_check_dinheiro else 'NAO'
-    fin_car = 'SIM' if fc.financeiro_check_cartao else 'NAO'
-    dir_car = 'SIM' if fc.diretor_check_cartao else 'NAO'
-    fin_fat = 'SIM' if fc.financeiro_check_faturado else 'NAO'
-    dir_fat = 'SIM' if fc.diretor_check_faturado else 'NAO'
-    fin_uc = 'SIM' if fc.financeiro_check_uso_credito else 'NAO'
-    dir_uc = 'SIM' if fc.diretor_check_uso_credito else 'NAO'
-    fin_dep = 'SIM' if fc.financeiro_check_deposito else 'NAO'
-    dir_dep = 'SIM' if fc.diretor_check_deposito else 'NAO'
-    fin_cort = 'SIM' if fc.financeiro_check_cortesia else 'NAO'
-    dir_cort = 'SIM' if fc.diretor_check_cortesia else 'NAO'
+    if fc.sistema_pms == 'hits':
+        fin_din = 'SIM' if fc.financeiro_check_dinheiro else 'NAO'
+        valores_data = [
+            ['Item', 'Valor', 'Financeiro'],
+            ['Dinheiro (coluna Lancamento, sem fundo de caixa)', fmt_valor(fc.dinheiro_encerramento), fin_din],
+            ['Stone (cartoes + Stone Pix)', fmt_valor(fc.hits_stone_total), '-'],
+            ['Faturado', fmt_valor(fc.faturado), '-'],
+            ['Transferencia Bancaria', fmt_valor(fc.hits_transferencia_bancaria), '-'],
+            ['Pix CNPJ', fmt_valor(fc.hits_pix_cnpj), '-'],
+            ['Virada de Sistema', fmt_valor(fc.hits_virada_sistema), '-'],
+            ['Total do Caixa', fmt_valor(fc.hits_total_caixa), '-'],
+        ]
+        t2 = Table(valores_data, colWidths=[9*cm, 4*cm, 3*cm])
+        t2.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')]),
+            ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(t2)
+        story.append(Paragraph('HITS: somente o Dinheiro e conferido pelo Financeiro e nao vai ao cofre.',
+                               sub_style))
+        if cruzamento is not None:
+            n_ok = len([c for c in cruzamento if c['status'] == 'ok'])
+            story.append(Paragraph('CRUZAMENTO DE CARTOES (STONE)', section_style))
+            story.append(Paragraph(str(n_ok) + ' de ' + str(len(cruzamento)) +
+                                   ' vendas conferidas (STONE ID encontrado e valor igual ao da Stone)',
+                                   sub_style))
+            rotulo = {'ok': 'Conferido', 'divergente': 'Valor diferente', 'nao_encontrado': 'Nao encontrado'}
+            cz = [['Tipo', 'Stone ID', 'Valor', 'Status']]
+            for c in cruzamento:
+                tr = c['transacao']
+                st = rotulo.get(c['status'], c['status'])
+                if c['status'] == 'divergente' and c['stone'] is not None:
+                    st += ' (Stone: ' + fmt_valor(c['stone'].valor_bruto) + ')'
+                cz.append([tr.tipo, tr.stone_id, fmt_valor(tr.valor), st])
+            tc = Table(cz, colWidths=[4.8*cm, 3.6*cm, 2.4*cm, 5.2*cm], repeatRows=1)
+            tc.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')]),
+                ('ALIGN', (2, 0), (2, -1), 'RIGHT'),
+                ('PADDING', (0, 0), (-1, -1), 4),
+            ]))
+            story.append(tc)
+    else:
+        fin_din = 'SIM' if fc.financeiro_check_dinheiro else 'NAO'
+        dir_din = 'SIM' if fc.diretor_check_dinheiro else 'NAO'
+        fin_car = 'SIM' if fc.financeiro_check_cartao else 'NAO'
+        dir_car = 'SIM' if fc.diretor_check_cartao else 'NAO'
+        fin_fat = 'SIM' if fc.financeiro_check_faturado else 'NAO'
+        dir_fat = 'SIM' if fc.diretor_check_faturado else 'NAO'
+        fin_uc = 'SIM' if fc.financeiro_check_uso_credito else 'NAO'
+        dir_uc = 'SIM' if fc.diretor_check_uso_credito else 'NAO'
+        fin_dep = 'SIM' if fc.financeiro_check_deposito else 'NAO'
+        dir_dep = 'SIM' if fc.diretor_check_deposito else 'NAO'
+        fin_cort = 'SIM' if fc.financeiro_check_cortesia else 'NAO'
+        dir_cort = 'SIM' if fc.diretor_check_cortesia else 'NAO'
 
-    valores_data = [
-        ['Item', 'Valor', 'Financeiro', 'Diretor'],
-        ['4 - Dinheiro Saida', fmt_valor(fc.dinheiro_saida), '-', '-'],
-        ['5 - Dinheiro Encerramento', fmt_valor(fc.dinheiro_encerramento), fin_din, dir_din],
-        ['9 - Cartao', fmt_valor(fc.cartao), fin_car, dir_car],
-        ['6 - Faturado', fmt_valor(fc.faturado), fin_fat, dir_fat],
-        ['7 - Uso de Credito', fmt_valor(fc.uso_credito), fin_uc, dir_uc],
-        ['8 - Deposito Bancario', fmt_valor(fc.deposito_bancario), fin_dep, dir_dep],
-        ['10 - Cortesia', fmt_valor(fc.cortesia), fin_cort, dir_cort],
-    ]
-    if fc.tem_vendas_online:
-        fin_vo = 'SIM' if fc.financeiro_check_vendas_online else 'NAO'
-        dir_vo = 'SIM' if fc.diretor_check_vendas_online else 'NAO'
-        valores_data.append(['Vendas Online', fmt_valor(fc.vendas_online), fin_vo, dir_vo])
+        valores_data = [
+            ['Item', 'Valor', 'Financeiro', 'Diretor'],
+            ['4 - Dinheiro Saida', fmt_valor(fc.dinheiro_saida), '-', '-'],
+            ['5 - Dinheiro Encerramento', fmt_valor(fc.dinheiro_encerramento), fin_din, dir_din],
+            ['9 - Cartao', fmt_valor(fc.cartao), fin_car, dir_car],
+            ['6 - Faturado', fmt_valor(fc.faturado), fin_fat, dir_fat],
+            ['7 - Uso de Credito', fmt_valor(fc.uso_credito), fin_uc, dir_uc],
+            ['8 - Deposito Bancario', fmt_valor(fc.deposito_bancario), fin_dep, dir_dep],
+            ['10 - Cortesia', fmt_valor(fc.cortesia), fin_cort, dir_cort],
+        ]
+        if fc.tem_vendas_online:
+            fin_vo = 'SIM' if fc.financeiro_check_vendas_online else 'NAO'
+            dir_vo = 'SIM' if fc.diretor_check_vendas_online else 'NAO'
+            valores_data.append(['Vendas Online', fmt_valor(fc.vendas_online), fin_vo, dir_vo])
 
-    t2 = Table(valores_data, colWidths=[6*cm, 4*cm, 3*cm, 3*cm])
-    t2.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')]),
-        ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
-        ('PADDING', (0, 0), (-1, -1), 6),
-    ]))
-    story.append(t2)
+        t2 = Table(valores_data, colWidths=[6*cm, 4*cm, 3*cm, 3*cm])
+        t2.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')]),
+            ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(t2)
     story.append(Spacer(1, 0.4*cm))
 
     story.append(Paragraph('CONFERENCIAS E APROVACOES', section_style))
@@ -115,9 +169,10 @@ def gerar_pdf_relatorio(fc, financeiro_user, diretor_user):
     conf_data = [
         ['Etapa', 'Responsavel', 'Data/Hora', 'Observacoes'],
         ['FINANCEIRO', fin_name, fin_at, fc.financeiro_obs or '-'],
-        ['DIRETOR', dir_name, dir_at, fc.diretor_obs or '-'],
-        ['COFRE', dir_name, cofre_at, fc.cofre_obs or '-'],
     ]
+    if fc.sistema_pms != 'hits':
+        conf_data.append(['DIRETOR', dir_name, dir_at, fc.diretor_obs or '-'])
+        conf_data.append(['COFRE', dir_name, cofre_at, fc.cofre_obs or '-'])
 
     t3 = Table(conf_data, colWidths=[3.5*cm, 3.5*cm, 4*cm, 5*cm])
     t3.setStyle(TableStyle([

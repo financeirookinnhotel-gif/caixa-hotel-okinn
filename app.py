@@ -669,7 +669,14 @@ def gerar_relatorio(fc_id):
     diretor_user = User.query.get(fc.diretor_user_id) if fc.diretor_user_id else None
     try:
         from report_generator import gerar_pdf_relatorio
-        pdf_path = gerar_pdf_relatorio(fc, financeiro_user, diretor_user)
+        cruzamento = None
+        if fc.sistema_pms == 'hits':
+            cruzamento = []
+            with db.session.no_autoflush:
+                for t in fc.transacoes_cartao:
+                    status, stone = t.stone_match()
+                    cruzamento.append({'transacao': t, 'status': status, 'stone': stone})
+        pdf_path = gerar_pdf_relatorio(fc, financeiro_user, diretor_user, cruzamento)
         return send_file(pdf_path, as_attachment=True,
                          download_name='relatorio_fechamento_' + str(fc.id) + '.pdf')
     except Exception as e:

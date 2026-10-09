@@ -217,11 +217,10 @@
           </div>
         </div>
         {% endif %}
-        {% if fc.status == 'concluido' %}
-        <a href="{{ url_for('gerar_relatorio', fc_id=fc.id) }}" class="btn btn-success w-100 mt-2">
+        <a href="{{ url_for('gerar_relatorio', fc_id=fc.id) }}"
+           class="btn {{ 'btn-success' if fc.status == 'concluido' else 'btn-outline-success' }} w-100 mt-2">
           <i class="fas fa-file-pdf me-2"></i>Baixar Relatorio PDF
         </a>
-        {% endif %}
       </div>
     </div>
   </div>
