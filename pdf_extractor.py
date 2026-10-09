@@ -298,7 +298,7 @@ def extract_caixa_data(pdf_path):
 
 # ─── Extrator do sistema HITS (novo PMS, substituindo o HMAX aos poucos) ──
 
-def _parse_resumo_caixa_hits(tabela):
+def _parse_resumo_caixa_hits(tabela, lancamentos=None):
     """Le a tabela 'Resumo do caixa' do HITS e retorna {tipo_pagamento: total}.
 
     Cada linha da tabela tem o tipo de pagamento na 1a celula (pode vir
@@ -326,6 +326,12 @@ def _parse_resumo_caixa_hits(tabela):
                 break
         if total_cell:
             totais[label] = totais.get(label, 0.0) + normalizar_valor(total_cell)
+        if lancamentos is not None:
+            # 1a coluna numerica da linha = "Lancamento" (grupo Pagamento)
+            for cell in row[1:]:
+                if cell and any(c.isdigit() for c in cell):
+                    lancamentos[label] = lancamentos.get(label, 0.0) + normalizar_valor(cell)
+                    break
     return totais
 
 
@@ -370,6 +376,8 @@ def _parse_transacoes_cartao_hits(full_text):
         tipo_upper = tipo.upper()
         if 'STONE' not in tipo_upper or 'PIX' in tipo_upper:
             continue
+        # a ultima transacao vai ate o fim do texto: corta nas secoes finais
+        parte = re.split(r'Estornos de pagamentos|Documentos', parte)[0]
         m_aut = re.search(r'aut\.:\s*(\S+)', parte)
         valores = re.findall(r'\$([\d.,]+)', parte)
         if not (m_aut and valores):
@@ -378,7 +386,7 @@ def _parse_transacoes_cartao_hits(full_text):
             'num_transacao': num,
             'tipo': tipo,
             'stone_id': m_aut.group(1),
-            'valor': normalizar_valor(valores[-1]),
+            'valor': normalizar_valor(valores[0]),
         })
     return transacoes
 
@@ -418,8 +426,9 @@ def extract_caixa_data_hits(pdf_path):
 
         tabelas = first_page.extract_tables()
         totais = {}
+        lancamentos = {}
         for tabela in tabelas:
-            totais.update(_parse_resumo_caixa_hits(tabela))
+            totais.update(_parse_resumo_caixa_hits(tabela, lancamentos))
 
         # Reaproveita as paginas ja abertas (nao abre o PDF de novo) para
         # pegar o log detalhado (onde ficam as transacoes de cartao) —
@@ -429,16 +438,10 @@ def extract_caixa_data_hits(pdf_path):
         for page in pdf.pages[1:]:
             texto_todas_paginas += '\n' + (page.extract_text() or '')
 
-    # O "Documento avulso" da linha DINHEIRO no resumo inclui o fundo de
-    # caixa (dinheiro que ja estava na gaveta, nao e venda nova) somado ao
-    # total. O fundo de caixa aparece detalhado na secao "Documentos" do
-    # log, ex.: "DINHEIRO - fundo de caixa $424,00" — subtrai isso do
-    # Dinheiro para nao inflar o valor que vai para o cofre.
-    fundo_caixa_re = re.compile(r'DINHEIRO\s*-\s*fundo de caixa\s+\$([\d.,]+)', re.IGNORECASE)
-    fundo_caixa_total = sum(
-        normalizar_valor(m.group(1)) for m in fundo_caixa_re.finditer(texto_todas_paginas)
-    )
-    result['dinheiro_encerramento'] = totais.get('DINHEIRO', 0.0) - fundo_caixa_total
+    # Dinheiro = coluna "Lancamento" da linha DINHEIRO. As colunas de
+    # "Documento avulso" (fundo de caixa, retiradas/manutencao etc.) entram
+    # no Total mas nao sao venda de dinheiro, entao ficam de fora.
+    result['dinheiro_encerramento'] = lancamentos.get('DINHEIRO', 0.0)
     result['faturado'] = totais.get('FATURADO', 0.0)
     result['hits_transferencia_bancaria'] = totais.get('TRANSFERENCIA BANCARIA', 0.0)
     result['hits_pix_cnpj'] = totais.get('PIX CNPJ', 0.0)

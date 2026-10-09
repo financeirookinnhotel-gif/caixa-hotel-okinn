@@ -247,7 +247,24 @@ class TransacaoCaixaHits(db.Model):
     )
 
     def stone_match(self):
-        return TransacaoStone.query.filter_by(stone_id=self.stone_id).first()
+        """Cruza com o extrato da Stone. Retorna (status, transacao_stone):
+        'ok' (achou e o valor bate), 'divergente' (achou, mas o valor da
+        Stone e diferente) ou 'nao_encontrado'.
+
+        Chave principal: STONE ID (campo "aut." do PDF). Alguns PDFs saem
+        com o "aut." truncado/embaralhado (so sobra o codigo de autorizacao
+        curto), entao tenta tambem o codigo de autorizacao + mesmo valor."""
+        t = TransacaoStone.query.filter_by(stone_id=self.stone_id).first()
+        if not t:
+            t = TransacaoStone.query.filter(
+                TransacaoStone.codigo_autorizacao == self.stone_id,
+                TransacaoStone.valor_bruto.between(self.valor - 0.01, self.valor + 0.01),
+            ).first()
+        if not t:
+            return 'nao_encontrado', None
+        if abs((t.valor_bruto or 0) - (self.valor or 0)) <= 0.01:
+            return 'ok', t
+        return 'divergente', t
 
 
 def mes_ano_de(data_str):
@@ -463,10 +480,10 @@ def fechamento_detail(fc_id):
         db.session.commit()
     cruzamento_cartao = None
     if fc.sistema_pms == 'hits':
-        cruzamento_cartao = [
-            {'transacao': t, 'match': t.stone_match()}
-            for t in fc.transacoes_cartao
-        ]
+        cruzamento_cartao = []
+        for t in fc.transacoes_cartao:
+            status, stone = t.stone_match()
+            cruzamento_cartao.append({'transacao': t, 'status': status, 'stone': stone})
     # Motivo de pular o cofre: unidades sem dinheiro fisico usam recibo;
     # fechamentos do Hits nao enviam dinheiro ao cofre por esse sistema.
     if fc.cofre_opcional:
