@@ -661,6 +661,30 @@ def cofre_confirm(fc_id):
     return jsonify({'success': True, 'message': 'Envio ao cofre registrado!'})
 
 
+def cruzamento_cartao_pdf(fc):
+    """Lista {'transacao','status','stone'} das vendas de cartao de um fechamento HITS
+    (None para Hmax)."""
+    if fc.sistema_pms != 'hits':
+        return None
+    cruzamento = []
+    with db.session.no_autoflush:
+        for t in fc.transacoes_cartao:
+            status, stone = t.stone_match()
+            cruzamento.append({'transacao': t, 'status': status, 'stone': stone})
+    return cruzamento
+
+
+@app.route('/fechamento/<int:fc_id>/conferencia-pdf')
+@login_required
+def conferencia_pdf(fc_id):
+    fc = FechamentoCaixa.query.get_or_404(fc_id)
+    financeiro_user = User.query.get(fc.financeiro_user_id) if fc.financeiro_user_id else None
+    from report_generator import gerar_pdf_conferencia
+    buffer = gerar_pdf_conferencia(fc, financeiro_user, cruzamento_cartao_pdf(fc))
+    return send_file(buffer, as_attachment=True, mimetype='application/pdf',
+                     download_name='conferencia_fechamento_' + str(fc.id) + '.pdf')
+
+
 @app.route('/fechamento/<int:fc_id>/relatorio')
 @login_required
 def gerar_relatorio(fc_id):
@@ -669,13 +693,7 @@ def gerar_relatorio(fc_id):
     diretor_user = User.query.get(fc.diretor_user_id) if fc.diretor_user_id else None
     try:
         from report_generator import gerar_pdf_relatorio
-        cruzamento = None
-        if fc.sistema_pms == 'hits':
-            cruzamento = []
-            with db.session.no_autoflush:
-                for t in fc.transacoes_cartao:
-                    status, stone = t.stone_match()
-                    cruzamento.append({'transacao': t, 'status': status, 'stone': stone})
+        cruzamento = cruzamento_cartao_pdf(fc)
         pdf_path = gerar_pdf_relatorio(fc, financeiro_user, diretor_user, cruzamento)
         return send_file(pdf_path, as_attachment=True,
                          download_name='relatorio_fechamento_' + str(fc.id) + '.pdf')
