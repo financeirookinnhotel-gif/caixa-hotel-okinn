@@ -58,6 +58,9 @@
     <button onclick="limparFiltros()" class="btn btn-outline-secondary btn-sm">
       <i class="fas fa-times me-1"></i>Limpar
     </button>
+    <button onclick="exportarPdf()" class="btn btn-outline-danger btn-sm" title="Exporta em PDF os fechamentos exibidos na tela">
+      <i class="fas fa-file-pdf me-1"></i>Exportar PDF
+    </button>
     <button id="btnOcultarConcluidos" onclick="toggleConcluidos()"
             class="btn btn-outline-secondary btn-sm btn-toggle-concluidos" title="Ocultar/Exibir concluidos">
       <i class="fas fa-eye-slash me-1"></i>Ocultar Concluidos
@@ -95,7 +98,7 @@
         </thead>
         <tbody id="tbodyFechamentos">
           {% for fc in fechamentos %}
-          <tr data-unidade="{{ fc.unidade }}" data-status="{{ fc.status }}" data-data="{{ fc.data_fechamento }}" data-sistema="{{ fc.sistema_pms }}">
+          <tr data-id="{{ fc.id }}" data-unidade="{{ fc.unidade }}" data-status="{{ fc.status }}" data-data="{{ fc.data_fechamento }}" data-sistema="{{ fc.sistema_pms }}">
             <td class="px-3 py-2 text-muted" style="font-size:0.82rem">{{ loop.index }}</td>
             <td class="py-2 fw-semibold" style="font-size:0.85rem">#{{ fc.movimento_num }}</td>
             <td class="py-2 fw-semibold" style="font-size:0.85rem">{{ fc.unidade }}</td>
@@ -262,6 +265,15 @@ function toggleConcluidos() {
     btn.innerHTML = '<i class="fas fa-eye-slash me-1"></i>Ocultar Concluidos';
   }
   filtrar();
+}
+
+function exportarPdf() {
+  var ids = [];
+  document.querySelectorAll('#tbodyFechamentos tr[data-unidade]').forEach(function(tr) {
+    if (tr.style.display !== 'none') ids.push(tr.dataset.id);
+  });
+  if (!ids.length) { alert('Nenhum fechamento na lista para exportar.'); return; }
+  window.location.href = '/fechamentos/exportar-pdf?ids=' + ids.join(',');
 }
 
 function excluirFechamento(id) {

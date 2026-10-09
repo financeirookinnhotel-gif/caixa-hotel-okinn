@@ -388,6 +388,75 @@ def lista_fechamentos():
     return render_template('fechamentos.html', fechamentos=fechamentos, unidades=UNIDADES)
 
 
+@app.route('/fechamentos/exportar-pdf')
+@login_required
+def exportar_fechamentos_pdf():
+    """PDF da lista de fechamentos. `ids` = os que estao visiveis nos filtros da tela."""
+    from io import BytesIO
+    ids_raw = request.args.get('ids', '')
+    ids = [int(i) for i in ids_raw.split(',') if i.strip().isdigit()]
+    query = FechamentoCaixa.query
+    if ids:
+        query = query.filter(FechamentoCaixa.id.in_(ids))
+    fechamentos = query.order_by(FechamentoCaixa.unidade.asc(),
+                                 FechamentoCaixa.movimento_num.asc()).all()
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.enums import TA_CENTER
+
+    def brl(v):
+        return 'R$ {:,.2f}'.format(v or 0).replace(',', 'X').replace('.', ',').replace('X', '.')
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4), topMargin=1.2*cm, bottomMargin=1.2*cm,
+                            leftMargin=1.2*cm, rightMargin=1.2*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('T', parent=styles['Title'], fontSize=15,
+                                 textColor=colors.HexColor('#1a3a5c'), spaceAfter=4)
+    foot_style = ParagraphStyle('F', parent=styles['Normal'], fontSize=8,
+                                textColor=colors.grey, alignment=TA_CENTER)
+    story = [Paragraph('FECHAMENTOS DE CAIXA - OK INN / LEVE HOTEIS', title_style),
+             Paragraph('Gerado em ' + datetime.now().strftime('%d/%m/%Y %H:%M') +
+                       ' | ' + str(len(fechamentos)) + ' fechamento(s)', styles['Normal']),
+             Spacer(1, 0.3*cm)]
+    dados = [['Mov.', 'Unidade', 'Data', 'Fechou', 'Dinheiro Enc.', 'Cartao', 'Faturado',
+              'Deposito', 'Status', 'Sistema']]
+    tot_din = tot_car = tot_fat = tot_dep = 0.0
+    for fc in fechamentos:
+        dados.append(['#' + str(fc.movimento_num), fc.unidade, fc.data_fechamento, fc.quem_fechou or '-',
+                      brl(fc.dinheiro_encerramento), brl(fc.cartao), brl(fc.faturado),
+                      brl(fc.deposito_bancario), fc.status_label(), (fc.sistema_pms or 'hmax').upper()])
+        tot_din += fc.dinheiro_encerramento or 0
+        tot_car += fc.cartao or 0
+        tot_fat += fc.faturado or 0
+        tot_dep += fc.deposito_bancario or 0
+    dados.append(['', 'TOTAL', '', '', brl(tot_din), brl(tot_car), brl(tot_fat), brl(tot_dep), '', ''])
+    tabela = Table(dados, repeatRows=1,
+                   colWidths=[1.5*cm, 4.2*cm, 2.3*cm, 3.2*cm, 2.8*cm, 2.6*cm, 2.6*cm, 2.6*cm, 3.0*cm, 1.8*cm])
+    tabela.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a3a5c')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e9ecef')),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8f9fa')]),
+        ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#ced4da')),
+        ('ALIGN', (4, 0), (7, -1), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    story.append(tabela)
+    story.append(Spacer(1, 0.4*cm))
+    story.append(Paragraph('Sistema de Fechamento de Caixa - OK INN', foot_style))
+    doc.build(story)
+    buffer.seek(0)
+    nome = 'fechamentos_' + datetime.now().strftime('%Y%m%d_%H%M') + '.pdf'
+    return send_file(buffer, as_attachment=True, download_name=nome, mimetype='application/pdf')
+
+
 @app.route('/upload', methods=['GET', 'POST'])
 @login_required
 def upload():
